@@ -1,0 +1,700 @@
+{
+  "name": "1 - Dormant Customer Sweep",
+  "nodes": [
+    {
+      "name": "Sticky Note - s-setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -380
+      ],
+      "parameters": {
+        "width": 600,
+        "height": 580,
+        "color": 4,
+        "content": "## BRINGING QUIET CUSTOMERS BACK\n\nOnce a week this looks through the customer list for people who are overdue a return visit - the patient 14 months since a check-up, the client whose treatment wore off months ago - and sends each one a short personal message.\n\n**It does not spam anyone.** Three separate limits:\n- at most 25 messages in a single run\n- at most 2 reactivation attempts per customer, ever\n- nobody contacted twice inside 90 days\n\nAnyone who has opted out or been suppressed is filtered out before a single message is written.\n\n**Fill in before switching on:** the Airtable base/table IDs (`appREPLACE_...`), a token scoped to this base, and the owner email.\n\n**Weekly on purpose.** Do not move it to daily on the Airtable free plan."
+      }
+    },
+    {
+      "name": "Sticky Note - s-window",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        320,
+        -380
+      ],
+      "parameters": {
+        "width": 420,
+        "height": 240,
+        "color": 7,
+        "content": "## What counts as 'overdue'\n\nEach customer carries their own **Return Window Days** - 6 months for a dental check-up, 3 months for Botox, 12 months for a boiler service.\n\nSomeone is only picked up once their last visit plus their own window is in the past. That is why the same list works for a clinic and a plumber."
+      }
+    },
+    {
+      "name": "Sticky Note - s-ai",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        800,
+        -380
+      ],
+      "parameters": {
+        "width": 480,
+        "height": 260,
+        "color": 5,
+        "content": "## Written to sound like the owner\n\nGemini writes each message individually using how long they have been away and what they last had done.\n\n**If Gemini is unavailable** the workflow keeps going on a plain pre-written message rather than skipping the customer.\n\nThe tone rule is strict: this reads as a check-in from someone who remembers them, never as marketing."
+      }
+    },
+    {
+      "name": "Run Every Monday Morning",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -120,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 10,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Find Customers Who Are Overdue",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "position": [
+        100,
+        0
+      ],
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_REACTIVATION_BASE",
+          "cachedResultName": "Reactivation and Reviews"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_CUSTOMERS",
+          "cachedResultName": "Customers"
+        },
+        "filterByFormula": "AND(NOT({Opted Out}), NOT({Suppressed}), {Reactivation Touches} < 2, IS_BEFORE(DATEADD({Last Visit Date}, {Return Window Days}, 'days'), TODAY()), OR({Last Contacted At} = BLANK(), IS_BEFORE({Last Contacted At}, DATEADD(TODAY(), -90, 'days'))))",
+        "options": {}
+      }
+    },
+    {
+      "name": "Alert Owner - Customer List Unreadable",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        100,
+        220
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "Reactivation sweep could not read the customer list",
+        "emailType": "text",
+        "message": "=This week's reactivation sweep did not run - Airtable would not return the customer list.\n\nWhat Airtable said: {{ JSON.stringify($json.error || $json) }}\n\nMost common cause: the access token has no scope on this base. Airtable returns an empty list rather than an error when that happens, so check the token before anything else.\n\nNothing was sent. It will try again next Monday.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Cap This Run",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "maxItems": 25
+      }
+    },
+    {
+      "name": "Loop Over Overdue Customers",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        540,
+        0
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "name": "Prepare Customer",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        800,
+        100
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "record_id",
+              "type": "string",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "id": "a2",
+              "name": "first_name",
+              "type": "string",
+              "value": "={{ ($json['Name'] || '').split(' ')[0] }}"
+            },
+            {
+              "id": "a3",
+              "name": "email",
+              "type": "string",
+              "value": "={{ ($json['Email'] || '').toLowerCase() }}"
+            },
+            {
+              "id": "a4",
+              "name": "last_service",
+              "type": "string",
+              "value": "={{ $json['Service Type'] || 'their last visit' }}"
+            },
+            {
+              "id": "a5",
+              "name": "last_visit",
+              "type": "string",
+              "value": "={{ $json['Last Visit Date'] }}"
+            },
+            {
+              "id": "a6",
+              "name": "months_away",
+              "type": "number",
+              "value": "={{ $json['Last Visit Date'] ? Math.round($now.diff(DateTime.fromISO($json['Last Visit Date']), 'months').months) : 0 }}"
+            },
+            {
+              "id": "a7",
+              "name": "touch_number",
+              "type": "number",
+              "value": "={{ ($json['Reactivation Touches'] || 0) + 1 }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Gemini - Reactivation Writer",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "retryOnFail": false,
+      "position": [
+        940,
+        340
+      ],
+      "parameters": {
+        "modelName": "models/gemini-3.7-flash",
+        "options": {}
+      }
+    },
+    {
+      "name": "Reactivation Message Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1120,
+        340
+      ],
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"subject\": {\n      \"type\": \"string\",\n      \"description\": \"Email subject line. Under 50 characters. No exclamation marks. Must not read like an advert.\"\n    },\n    \"body\": {\n      \"type\": \"string\",\n      \"description\": \"Plain text body, under 100 words, signed off with a first name only.\"\n    }\n  },\n  \"required\": [\n    \"subject\",\n    \"body\"\n  ]\n}"
+      }
+    },
+    {
+      "name": "Write the Check-In",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 20000,
+      "onError": "continueErrorOutput",
+      "position": [
+        1020,
+        100
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Write a check-in message to a customer who has not been back in a while.\n\nFirst name: {{ $json.first_name }}\nWhat they last had done: {{ $json.last_service }}\nRoughly {{ $json.months_away }} months since their last visit\nThis is check-in number {{ $json.touch_number }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You write short check-in messages for a small local business to customers who have not been back in a while.\n\nRules you never break:\n- This is a check-in from someone who remembers them, not an advert. If it reads like marketing, it has failed.\n- Under 100 words.\n- Never mention a discount, an offer, a price, or a deadline. You were not given one and you must not invent one.\n- Never mention anything medical, clinical or health-related. Say what they had done only in the plainest everyday terms, and nothing about their condition, treatment or results.\n- Never imply urgency, and never suggest something is wrong or overdue in a way that would worry them.\n- No 'we miss you', no 'it has been a while since we last saw you!', no exclamation marks.\n- End with one easy question they can answer in one line.\n- Sign off with a first name only."
+        }
+      }
+    },
+    {
+      "name": "Use AI Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ $json.output?.subject || $json.subject }}"
+            },
+            {
+              "id": "a2",
+              "name": "body",
+              "type": "string",
+              "value": "={{ $json.output?.body || $json.body }}"
+            },
+            {
+              "id": "a3",
+              "name": "copy_source",
+              "type": "string",
+              "value": "gemini"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Use Fallback Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1320,
+        220
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "subject",
+              "type": "string",
+              "value": "Booking you back in"
+            },
+            {
+              "id": "a2",
+              "name": "body",
+              "type": "string",
+              "value": "={{ 'Hi ' + $('Prepare Customer').item.json.first_name + ',\\n\\nIt has been a little while since you were last in. Just checking whether you would like to get something booked.\\n\\nWould a weekday or a weekend suit you better?' }}"
+            },
+            {
+              "id": "a3",
+              "name": "copy_source",
+              "type": "string",
+              "value": "fallback-template"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Send the Check-In",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "position": [
+        1560,
+        100
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Prepare Customer').item.json.email }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Update the Customer Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1800,
+        0
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_REACTIVATION_BASE",
+          "cachedResultName": "Reactivation and Reviews"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_CUSTOMERS",
+          "cachedResultName": "Customers"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Prepare Customer').item.json.record_id }}",
+            "Reactivation Touches": "={{ $('Prepare Customer').item.json.touch_number }}",
+            "Last Contacted At": "={{ $now.toFormat('yyyy-MM-dd') }}",
+            "Status": "Reactivation Sent"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Write to the Send Log",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2020,
+        0
+      ],
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_REACTIVATION_BASE",
+          "cachedResultName": "Reactivation and Reviews"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_SEND_LOG",
+          "cachedResultName": "Send Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Email": "={{ $('Prepare Customer').item.json.email }}",
+            "Name": "={{ $('Prepare Customer').item.json.first_name }}",
+            "Type": "Reactivation",
+            "Sent At": "={{ $now.toISO() }}",
+            "Channel": "Email",
+            "Subject": "={{ $('Use AI Message').isExecuted ? $('Use AI Message').item.json.subject : $('Use Fallback Message').item.json.subject }}",
+            "Body": "={{ $('Use AI Message').isExecuted ? $('Use AI Message').item.json.body : $('Use Fallback Message').item.json.body }}",
+            "Written By": "={{ $('Use AI Message').isExecuted ? 'gemini' : 'fallback-template' }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Alert Owner - Check-In Failed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1800,
+        320
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "=Reactivation message did not send: {{ $('Prepare Customer').item.json.first_name }}",
+        "emailType": "text",
+        "message": "=A reactivation message failed to send.\n\nCustomer: {{ $('Prepare Customer').item.json.first_name }} ({{ $('Prepare Customer').item.json.email }})\n\nWhat went wrong: {{ JSON.stringify($json.error || $json) }}\n\nTheir record was deliberately left untouched, so they stay on the overdue list and get picked up again next Monday rather than being skipped.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Build Weekly Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        800,
+        -180
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "contacted_count",
+              "type": "number",
+              "value": "={{ $input.all().length }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Send Owner the Weekly Summary",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1020,
+        -180
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "=Reactivation: {{ $json.contacted_count }} quiet customers contacted",
+        "emailType": "text",
+        "message": "=This week's reactivation sweep is done.\n\nCustomers contacted: {{ $json.contacted_count }}\n\nReplies come straight back to your inbox. Anyone who asks to be left alone is suppressed automatically by `3 - Opt-Out and Suppression`.",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Run Every Monday Morning": {
+      "main": [
+        [
+          {
+            "node": "Find Customers Who Are Overdue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Customers Who Are Overdue": {
+      "main": [
+        [
+          {
+            "node": "Cap This Run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Owner - Customer List Unreadable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cap This Run": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Overdue Customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Overdue Customers": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Weekly Summary": {
+      "main": [
+        [
+          {
+            "node": "Send Owner the Weekly Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Customer": {
+      "main": [
+        [
+          {
+            "node": "Write the Check-In",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Reactivation Writer": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Write the Check-In",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reactivation Message Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Write the Check-In",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the Check-In": {
+      "main": [
+        [
+          {
+            "node": "Use AI Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Use Fallback Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use AI Message": {
+      "main": [
+        [
+          {
+            "node": "Send the Check-In",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Fallback Message": {
+      "main": [
+        [
+          {
+            "node": "Send the Check-In",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send the Check-In": {
+      "main": [
+        [
+          {
+            "node": "Update the Customer Record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Owner - Check-In Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Owner - Check-In Failed": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Overdue Customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update the Customer Record": {
+      "main": [
+        [
+          {
+            "node": "Write to the Send Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to the Send Log": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Overdue Customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

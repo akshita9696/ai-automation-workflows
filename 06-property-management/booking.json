@@ -1,0 +1,694 @@
+{
+  "name": "PM Template - Booking",
+  "nodes": [
+    {
+      "name": "Watch for Needs Booking",
+      "notes": "NO CREDENTIAL ATTACHED YET - create/attach an Airtable credential and fill in real base/table IDs. Polling only (Airtable has no push webhook trigger) - 15 min interval balances responsiveness against API rate limits. Requires 'Last Modified Time' to actually be a Last Modified Time field type in the Jobs table, not plain text, per Airtable Trigger's requirement.",
+      "type": "n8n-nodes-base.airtableTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -208
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 15,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "authentication": "airtableTokenApi",
+        "baseId": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "tableId": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "triggerField": "Last Modified Time",
+        "additionalFields": {
+          "formula": "{Status} = 'Needs Booking'"
+        }
+      }
+    },
+    {
+      "name": "Build Cal.com Booking Link",
+      "notes": "PLACEHOLDER Cal.com event-type URL - replace 'PLACEHOLDER-EVENT-TYPE' with the real event type slug once Cal.com is connected. Job ID embedded in the 'notes' query param so the confirmation webhook can match back to this exact job robustly, not just by tenant email (in case of repeat tenants). Airtable Trigger output shape assumed as {id, fields: {...}} per Airtable's standard record API shape - verify against a real trigger fire.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        -208
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "bl1",
+              "name": "job_id",
+              "type": "string",
+              "value": "={{$json.id}}"
+            },
+            {
+              "id": "bl2",
+              "name": "tenant_email",
+              "type": "string",
+              "value": "={{$json.fields['Tenant Email']}}"
+            },
+            {
+              "id": "bl3",
+              "name": "tenant_name",
+              "type": "string",
+              "value": "={{$json.fields['Tenant Name']}}"
+            },
+            {
+              "id": "bl4",
+              "name": "property_address",
+              "type": "string",
+              "value": "={{$json.fields['Property Address']}}"
+            },
+            {
+              "id": "bl5",
+              "name": "assigned_engineer",
+              "type": "string",
+              "value": "={{$json.fields['Assigned Engineer']}}"
+            },
+            {
+              "id": "bl6",
+              "name": "booking_link",
+              "type": "string",
+              "value": "={{ 'https://cal.com/your-username/repair-appointment?name=' + encodeURIComponent($json.fields['Tenant Name'] || '') + '&email=' + encodeURIComponent($json.fields['Tenant Email'] || '') + '&notes=' + encodeURIComponent('Job ID: ' + $json.id) }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Update Job - Booking Sent",
+      "notes": "NO CREDENTIAL ATTACHED YET - same Airtable credential/base/table as the trigger node.",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        528,
+        -208
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$json.job_id}}",
+            "Status": "Booking Sent",
+            "Booking Link": "={{$json.booking_link}}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Email Tenant - Booking Link",
+      "notes": "NO CREDENTIAL ATTACHED YET - attach the client Gmail OAuth2 credential (same one used in the Intake workflow).",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        784,
+        -208
+      ],
+      "parameters": {
+        "sendTo": "={{$('Build Cal.com Booking Link').item.json.tenant_email}}",
+        "subject": "=Let's book a time for your repair at {{$('Build Cal.com Booking Link').item.json.property_address}}",
+        "emailType": "text",
+        "message": "=Hi {{$('Build Cal.com Booking Link').item.json.tenant_name}},\n\nWe've got your repair request for {{$('Build Cal.com Booking Link').item.json.property_address}} and {{$('Build Cal.com Booking Link').item.json.assigned_engineer}} is ready to take care of it.\n\nPlease pick a time that works for you here:\n{{$('Build Cal.com Booking Link').item.json.booking_link}}\n\nThanks,\nThe Team",
+        "options": {}
+      }
+    },
+    {
+      "name": "Cal.com Booking Webhook",
+      "notes": "Registered manually in Cal.com: Settings -> Developer -> Webhooks -> Add Webhook, subscribed to 'Booking Created'. n8n's built-in Cal.com Trigger node uses an auth scheme incompatible with Cal.com's current v2 API, so a plain inbound webhook is used instead - same pattern as calcom-meeting-sync.json in this repo.",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "onError": "continueRegularOutput",
+      "position": [
+        0,
+        160
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pm-calcom-booking-created",
+        "options": {}
+      }
+    },
+    {
+      "name": "Extract Booking Fields",
+      "notes": "Payload lives under $json.body.payload (n8n wraps webhook POST bodies), same gotcha documented for calcom-meeting-sync.json and the Tally intake. job_id_from_notes parses the 'Job ID: <id>' string embedded in the booking link's notes query param - Cal.com's exact field name for booking notes (additionalNotes vs description) needs verifying against a real test booking once Cal.com is connected.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        160
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "eb1",
+              "name": "attendee_email",
+              "type": "string",
+              "value": "={{ (($json.body && $json.body.payload && $json.body.payload.attendees && $json.body.payload.attendees[0] && $json.body.payload.attendees[0].email) || '').toLowerCase().trim() }}"
+            },
+            {
+              "id": "eb2",
+              "name": "meeting_datetime",
+              "type": "string",
+              "value": "={{ $json.body && $json.body.payload && $json.body.payload.startTime }}"
+            },
+            {
+              "id": "eb3",
+              "name": "cal_booking_uid",
+              "type": "string",
+              "value": "={{ $json.body && $json.body.payload && $json.body.payload.uid }}"
+            },
+            {
+              "id": "eb4",
+              "name": "job_id_from_notes",
+              "type": "string",
+              "value": "={{ ((($json.body && $json.body.payload && ($json.body.payload.additionalNotes || $json.body.payload.description)) || '').match(/Job ID:\\s*(\\S+)/) || [null, null])[1] }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Look Up Job by ID",
+      "notes": "NO CREDENTIAL ATTACHED YET. Primary match path: looks up by the exact Job ID embedded in the booking link. If job_id_from_notes is empty/invalid this errors - onError continues (with alwaysOutputData ensuring an item still flows) so the fallback email-based lookup below still runs.",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "position": [
+        528,
+        64
+      ],
+      "parameters": {
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "id": "={{$json.job_id_from_notes}}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Job Found by ID?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        64
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.id}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Look Up Job by Email (Fallback)",
+      "notes": "NO CREDENTIAL ATTACHED YET. Fallback path when job_id_from_notes was missing/didn't match - same robustness rationale as the Intake workflow's dedup check (alwaysOutputData needed so a zero-match search doesn't starve the downstream IF node).",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1040,
+        224
+      ],
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "filterByFormula": "={{ \"AND({Tenant Email} = '\" + $('Extract Booking Fields').item.json.attendee_email + \"', {Status} = 'Booking Sent')\" }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Job Found by Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1312,
+        224
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.id}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Unknown Booking - No Job Record",
+      "notes": "By design: a Cal.com booking that matches no job by ID or by email is silently dropped rather than creating a new record, same pattern as calcom-meeting-sync.json's 'Unknown Attendee - No Lead Record'.",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        352
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Update Job - Booked",
+      "notes": "NO CREDENTIAL ATTACHED YET - same Airtable credential/base/table as the other Airtable nodes. Fed by either 'Job Found by ID?' (true) or 'Job Found by Email?' (true) - both converge here since either path leaves the matched job record's id on $json.",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1568,
+        64
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$json.id}}",
+            "Status": "Booked",
+            "Scheduled Date/Time": "={{$('Extract Booking Fields').item.json.meeting_datetime}}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Email Tenant - Booking Confirmed",
+      "notes": "NO CREDENTIAL ATTACHED YET - attach the client Gmail OAuth2 credential.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1824,
+        64
+      ],
+      "parameters": {
+        "sendTo": "={{$('Extract Booking Fields').item.json.attendee_email}}",
+        "subject": "Your repair appointment is confirmed",
+        "emailType": "text",
+        "message": "=Hi,\n\nYour appointment is confirmed for {{$('Extract Booking Fields').item.json.meeting_datetime}}.\n\nThanks,\nThe Team",
+        "options": {}
+      }
+    },
+    {
+      "name": "Daily Escalation Check",
+      "notes": "Runs daily at 8am - checks for jobs stuck in 'Booking Sent' past the escalation threshold and flags them for a manual call, per the plan's bounded-escalation design (don't wait forever on a tenant to self-book).",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        560
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escalation Threshold (Hours)",
+      "notes": "Tune this constant to adjust how long a tenant has to self-book before escalating to a manual call - plan recommends 48-72h. Currently set to 72.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        560
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "et1",
+              "name": "threshold_hours",
+              "type": "number",
+              "value": 72
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Find Stale Booking-Sent Jobs",
+      "notes": "NO CREDENTIAL ATTACHED YET. Zero matches here means zero output items, which is fine and intentional - there's nothing to escalate, so downstream nodes simply don't run for anyone, no alwaysOutputData needed (unlike the dedup/lookup checks elsewhere, which need a guaranteed item to branch on).",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        528,
+        560
+      ],
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "filterByFormula": "={{ \"AND({Status} = 'Booking Sent', IS_BEFORE({Last Modified Time}, DATEADD(NOW(), -\" + $json.threshold_hours + \", 'hours')))\" }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Update Job - Needs Manual Booking",
+      "notes": "NO CREDENTIAL ATTACHED YET - same Airtable credential/base/table as the other Airtable nodes.",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        784,
+        560
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$json.id}}",
+            "Status": "Needs Manual Booking"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Notify Coordinator - Call Tenant",
+      "notes": "NO CREDENTIAL ATTACHED YET - attach the client Gmail OAuth2 credential. PLACEHOLDER 'sendTo' - set to the office coordinator's real email before activating.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1040,
+        560
+      ],
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=[Needs Manual Booking] {{$('Find Stale Booking-Sent Jobs').item.json.fields['Property Address']}}",
+        "emailType": "text",
+        "message": "=A tenant hasn't booked a time within the threshold - please call them directly.\n\nTenant: {{$('Find Stale Booking-Sent Jobs').item.json.fields['Tenant Name']}}\nPhone: {{$('Find Stale Booking-Sent Jobs').item.json.fields['Tenant Phone']}}\nEmail: {{$('Find Stale Booking-Sent Jobs').item.json.fields['Tenant Email']}}\nAddress: {{$('Find Stale Booking-Sent Jobs').item.json.fields['Property Address']}}\nIssue: {{$('Find Stale Booking-Sent Jobs').item.json.fields['Issue Description']}}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Watch for Needs Booking": {
+      "main": [
+        [
+          {
+            "node": "Build Cal.com Booking Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Cal.com Booking Link": {
+      "main": [
+        [
+          {
+            "node": "Update Job - Booking Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Job - Booking Sent": {
+      "main": [
+        [
+          {
+            "node": "Email Tenant - Booking Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cal.com Booking Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Booking Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Booking Fields": {
+      "main": [
+        [
+          {
+            "node": "Look Up Job by ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look Up Job by ID": {
+      "main": [
+        [
+          {
+            "node": "Job Found by ID?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Found by ID?": {
+      "main": [
+        [
+          {
+            "node": "Update Job - Booked",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Look Up Job by Email (Fallback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look Up Job by Email (Fallback)": {
+      "main": [
+        [
+          {
+            "node": "Job Found by Email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Found by Email?": {
+      "main": [
+        [
+          {
+            "node": "Update Job - Booked",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unknown Booking - No Job Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Job - Booked": {
+      "main": [
+        [
+          {
+            "node": "Email Tenant - Booking Confirmed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Escalation Check": {
+      "main": [
+        [
+          {
+            "node": "Escalation Threshold (Hours)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalation Threshold (Hours)": {
+      "main": [
+        [
+          {
+            "node": "Find Stale Booking-Sent Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Stale Booking-Sent Jobs": {
+      "main": [
+        [
+          {
+            "node": "Update Job - Needs Manual Booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Job - Needs Manual Booking": {
+      "main": [
+        [
+          {
+            "node": "Notify Coordinator - Call Tenant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

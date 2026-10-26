@@ -1,0 +1,770 @@
+{
+  "name": "2 - End of Call Logging and Escalation",
+  "nodes": [
+    {
+      "name": "Sticky Note - SETUP",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -360,
+        -220
+      ],
+      "parameters": {
+        "width": 600,
+        "height": 400,
+        "color": 4,
+        "content": "## SETUP\n\n**What this does:** every time a call ends, Vapi posts the full transcript here. This workflow works out how the call went, writes it to Airtable, and emails you if a human needs to step in.\n\n**Credentials to attach:**\n- `Vapi Webhook Secret` - same Header Auth credential as Workflow 1.\n- `Google Gemini API` - your existing credential.\n- `AI GMAIL` - your existing Gmail credential.\n- `Airtable Personal Access Token (Receptionist)` - same as Workflow 1.\n\n**Two things to fill in:**\n1. `Send Escalation Alert` node ? set **To** to your own email address (currently a placeholder).\n2. Every Airtable node ? pick your real base and the **Interaction Log** table (placeholders right now).\n\n**Model choice:** classification is a cheap task, so this uses a Flash model. Swap it in the node's dropdown if you'd rather match what your other workflows use.\n\n**Replaces the old missed-call text-back.** Since Twilio won't give us a free number, a call that fails or gets abandoned is caught here and emailed to you instead of texted to the caller."
+      }
+    },
+    {
+      "name": "Sticky Note - Classify",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        700,
+        60
+      ],
+      "parameters": {
+        "width": 620,
+        "height": 480,
+        "color": 5,
+        "content": "### Section 2 - Work out how the call went\nGemini reads the transcript and decides: was it booked, cancelled, a message, or does a human need to ring them back? If Gemini itself fails, the call is marked 'Unclear' and flagged for you - never silently dropped."
+      }
+    },
+    {
+      "name": "Sticky Note - Escalate",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1660,
+        20
+      ],
+      "parameters": {
+        "width": 900,
+        "height": 380,
+        "color": 5,
+        "content": "### Section 3 - Tell a human when it matters\nAn email goes out when the AI couldn't finish the job, the caller asked for a person, or the call dropped/errored. Everything else just gets logged quietly."
+      }
+    },
+    {
+      "name": "Sticky Note - Log",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2620,
+        140
+      ],
+      "parameters": {
+        "width": 460,
+        "height": 220,
+        "color": 5,
+        "content": "### Section 4 - Log everything\nEvery call lands in the Interaction Log table, whether it escalated or not. This is the record you'd show a client."
+      }
+    },
+    {
+      "name": "Receive End of Call Report",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -340,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-end-of-call",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "name": "Is End-Of-Call Report?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -100,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.body.message.type }}",
+              "rightValue": "end-of-call-report",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true
+      }
+    },
+    {
+      "name": "Ignore - Other Event",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        160,
+        440
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Prepare Call Record",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        160,
+        220
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "p1",
+              "name": "call_id",
+              "type": "string",
+              "value": "={{ $json.body.message.call.id }}"
+            },
+            {
+              "id": "p2",
+              "name": "caller_phone",
+              "type": "string",
+              "value": "={{ $json.body.message.call.customer.number }}"
+            },
+            {
+              "id": "p3",
+              "name": "started_at",
+              "type": "string",
+              "value": "={{ $json.body.message.startedAt }}"
+            },
+            {
+              "id": "p4",
+              "name": "ended_at",
+              "type": "string",
+              "value": "={{ $json.body.message.endedAt }}"
+            },
+            {
+              "id": "p5",
+              "name": "ended_reason",
+              "type": "string",
+              "value": "={{ $json.body.message.endedReason }}"
+            },
+            {
+              "id": "p6",
+              "name": "transcript",
+              "type": "string",
+              "value": "={{ $json.body.message.transcript }}"
+            },
+            {
+              "id": "p7",
+              "name": "duration_seconds",
+              "type": "number",
+              "value": "={{ $json.body.message.durationSeconds }}"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "name": "Google Gemini Chat Model (Classify Call)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "retryOnFail": false,
+      "position": [
+        760,
+        420
+      ],
+      "parameters": {
+        "modelName": "models/gemini-3-flash-preview",
+        "options": {}
+      }
+    },
+    {
+      "name": "Call Outcome Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        960,
+        420
+      ],
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"outcome\": {\n      \"type\": \"string\",\n      \"description\": \"One of: Booked, Rescheduled, Cancelled, Message Taken, Escalated, Abandoned, Unclear\"\n    },\n    \"needs_human_followup\": {\n      \"type\": \"string\",\n      \"description\": \"The word true or the word false. true if a person must call this caller back.\"\n    },\n    \"escalation_reason\": {\n      \"type\": \"string\",\n      \"description\": \"Short reason a human is needed, or the word none\"\n    },\n    \"one_line_summary\": {\n      \"type\": \"string\",\n      \"description\": \"One sentence describing what the caller wanted and what happened\"\n    }\n  },\n  \"required\": [\"outcome\", \"needs_human_followup\", \"escalation_reason\", \"one_line_summary\"]\n}"
+      }
+    },
+    {
+      "name": "Classify Call Outcome",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 20000,
+      "onError": "continueRegularOutput",
+      "position": [
+        820,
+        220
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=A call to an HVAC company's AI receptionist just ended. Decide what happened.\n\nHow the call ended (system reason): {{ $json.ended_reason }}\nCall length in seconds: {{ $json.duration_seconds }}\n\nTranscript:\n{{ $json.transcript }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You review finished phone calls for an HVAC company that uses an AI receptionist. You classify what happened. You never invent detail that isn't in the transcript.\n\nPick the outcome that actually happened:\n- Booked: an appointment was confirmed to the caller\n- Rescheduled: an existing appointment was moved\n- Cancelled: an existing appointment was cancelled\n- Message Taken: the AI took a message for a human\n- Escalated: the caller asked for a person, or was transferred\n- Abandoned: the caller hung up before anything was resolved\n- Unclear: the transcript is empty, broken, or you genuinely cannot tell\n\nSet needs_human_followup to the word true when: the caller wanted something the AI could not finish, asked for a person, sounded angry or was complaining, the booking failed, or the call ended badly (an error, or a hang-up mid-request). Otherwise set it to the word false.\n\nKeep escalation_reason under 15 words. Write none when no follow-up is needed.\nKeep one_line_summary factual and under 25 words."
+        }
+      }
+    },
+    {
+      "name": "AI Classify OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.output.outcome }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true
+      }
+    },
+    {
+      "name": "Prepare Outcome (Classified)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1380,
+        140
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s1",
+              "name": "outcome",
+              "type": "string",
+              "value": "={{ $json.output.outcome }}"
+            },
+            {
+              "id": "s2",
+              "name": "needs_human_followup",
+              "type": "string",
+              "value": "={{ $json.output.needs_human_followup }}"
+            },
+            {
+              "id": "s3",
+              "name": "escalation_reason",
+              "type": "string",
+              "value": "={{ $json.output.escalation_reason }}"
+            },
+            {
+              "id": "s4",
+              "name": "one_line_summary",
+              "type": "string",
+              "value": "={{ $json.output.one_line_summary }}"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "name": "Note - Classification Call Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1380,
+        320
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f1",
+              "name": "outcome",
+              "type": "string",
+              "value": "Unclear"
+            },
+            {
+              "id": "f2",
+              "name": "needs_human_followup",
+              "type": "string",
+              "value": "true"
+            },
+            {
+              "id": "f3",
+              "name": "escalation_reason",
+              "type": "string",
+              "value": "Classification call failed after retries"
+            },
+            {
+              "id": "f4",
+              "name": "one_line_summary",
+              "type": "string",
+              "value": "Gemini could not classify this call - review the transcript by hand."
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "name": "Needs Escalation?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1700,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "or",
+          "conditions": [
+            {
+              "id": "e1",
+              "leftValue": "={{ $json.needs_human_followup }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "e2",
+              "leftValue": "={{ $json.outcome }}",
+              "rightValue": "Abandoned",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "e3",
+              "leftValue": "={{ $('Prepare Call Record').item.json.ended_reason }}",
+              "rightValue": "error",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true
+      }
+    },
+    {
+      "name": "Send Escalation Alert",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1960,
+        140
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "=Call needs a callback: {{ $('Prepare Call Record').item.json.caller_phone }}",
+        "emailType": "text",
+        "message": "=A call to the AI receptionist needs a human.\n\nCaller: {{ $('Prepare Call Record').item.json.caller_phone }}\nWhat happened: {{ $json.one_line_summary }}\nWhy you're getting this: {{ $json.escalation_reason }}\nOutcome: {{ $json.outcome }}\nCall ended because: {{ $('Prepare Call Record').item.json.ended_reason }}\nLength: {{ $('Prepare Call Record').item.json.duration_seconds }} seconds\n\nTranscript:\n{{ $('Prepare Call Record').item.json.transcript }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Escalation Sent OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2220,
+        140
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c3",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notExists",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true
+      }
+    },
+    {
+      "name": "Note - Escalation Sent",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2460,
+        60
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n1",
+              "name": "escalated",
+              "type": "string",
+              "value": "true"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "name": "Note - Escalation Send Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2460,
+        200
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n2",
+              "name": "escalated",
+              "type": "string",
+              "value": "true"
+            },
+            {
+              "id": "n3",
+              "name": "escalation_send_error",
+              "type": "string",
+              "value": "Escalation email failed to send - check the Gmail credential."
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "name": "Note - No Escalation Needed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1960,
+        340
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n4",
+              "name": "escalated",
+              "type": "string",
+              "value": "false"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "name": "Log to Interaction Log",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2760,
+        220
+      ],
+      "parameters": {
+        "resource": "record",
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Channel": "Voice Call",
+            "Caller Phone": "={{ $('Prepare Call Record').item.json.caller_phone }}",
+            "Started/Received At": "={{ $('Prepare Call Record').item.json.started_at }}",
+            "Ended At": "={{ $('Prepare Call Record').item.json.ended_at }}",
+            "Duration Seconds": "={{ $('Prepare Call Record').item.json.duration_seconds }}",
+            "Ended Reason": "={{ $('Prepare Call Record').item.json.ended_reason }}",
+            "Transcript": "={{ $('Prepare Call Record').item.json.transcript }}",
+            "Summary": "={{ $('Needs Escalation?').item.json.one_line_summary }}",
+            "Outcome": "={{ $('Needs Escalation?').item.json.outcome }}",
+            "Escalated": "={{ $json.escalated }}",
+            "Escalation Reason": "={{ $('Needs Escalation?').item.json.escalation_reason }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receive End of Call Report": {
+      "main": [
+        [
+          {
+            "node": "Is End-Of-Call Report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is End-Of-Call Report?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Call Record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore - Other Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Call Record": {
+      "main": [
+        [
+          {
+            "node": "Classify Call Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model (Classify Call)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classify Call Outcome",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Outcome Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Classify Call Outcome",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Call Outcome": {
+      "main": [
+        [
+          {
+            "node": "AI Classify OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Classify OK?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Outcome (Classified)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Note - Classification Call Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Outcome (Classified)": {
+      "main": [
+        [
+          {
+            "node": "Needs Escalation?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Note - Classification Call Failed": {
+      "main": [
+        [
+          {
+            "node": "Needs Escalation?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Escalation?": {
+      "main": [
+        [
+          {
+            "node": "Send Escalation Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Note - No Escalation Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Escalation Alert": {
+      "main": [
+        [
+          {
+            "node": "Escalation Sent OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalation Sent OK?": {
+      "main": [
+        [
+          {
+            "node": "Note - Escalation Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Note - Escalation Send Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Note - Escalation Sent": {
+      "main": [
+        [
+          {
+            "node": "Log to Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Note - Escalation Send Failed": {
+      "main": [
+        [
+          {
+            "node": "Log to Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Note - No Escalation Needed": {
+      "main": [
+        [
+          {
+            "node": "Log to Interaction Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

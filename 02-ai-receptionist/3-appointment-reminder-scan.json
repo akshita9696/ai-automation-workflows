@@ -1,0 +1,481 @@
+{
+  "name": "3 - Appointment Reminder Scan",
+  "nodes": [
+    {
+      "name": "Sticky Note - SETUP",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -380,
+        -200
+      ],
+      "parameters": {
+        "width": 600,
+        "height": 380,
+        "color": 4,
+        "content": "## SETUP\n\n**What this does:** every hour it looks for appointments happening in the next 24 hours that haven't been reminded yet, and emails the customer.\n\n**Why email and not text:** Twilio won't hand out a phone number on a free trial, so SMS isn't available at zero cost. Swap these Gmail nodes for Twilio SMS nodes when a paying client is on board - the logic around them doesn't change.\n\n**Credentials to attach:**\n- `AI GMAIL` - your existing Gmail credential.\n- `Airtable Personal Access Token (Receptionist)` - same as Workflows 1 and 2.\n\n**To fill in:**\n1. Both owner-alert Gmail nodes ? set **To** to your own email (placeholder right now).\n2. Every Airtable node ? pick your real base and the **Appointments** table.\n\n**No email on file?** The customer gave us a phone number, not always an email. Those appointments email *you* instead, so you can ring them yourself - nothing silently disappears."
+      }
+    },
+    {
+      "name": "Sticky Note - Scan",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        220,
+        180
+      ],
+      "parameters": {
+        "width": 640,
+        "height": 300,
+        "color": 5,
+        "content": "### Section 1 - Find what's due\nReads from Airtable, not straight from the calendar, so it only ever reminds about bookings this system made - never appointments the business added by hand."
+      }
+    },
+    {
+      "name": "Sticky Note - Send",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        900,
+        20
+      ],
+      "parameters": {
+        "width": 900,
+        "height": 560,
+        "color": 5,
+        "content": "### Section 2 - Send the reminder\nCustomer gets the email if we have their address. If we don't, you get one instead telling you to call them. Either way the record gets marked so nobody is reminded twice."
+      }
+    },
+    {
+      "name": "Every Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -360,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Appointments Due in 24h",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        -100,
+        300
+      ],
+      "parameters": {
+        "resource": "record",
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "filterByFormula": "AND({Status} = 'Booked', {Reminder Sent} != 'true', IS_AFTER({Start Time}, NOW()), IS_BEFORE({Start Time}, DATEADD(NOW(), 24, 'hours')))",
+        "returnAll": true,
+        "options": {}
+      }
+    },
+    {
+      "name": "Lookup OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        180,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notExists",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true
+      }
+    },
+    {
+      "name": "Alert - Reminder Scan Failed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        440,
+        440
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "Reminder scan couldn't read Airtable",
+        "emailType": "text",
+        "message": "=The hourly appointment reminder scan failed to read the Appointments table, so no reminders went out this hour.\n\nCheck the Airtable credential and its scopes.\n\nDetails: {{ JSON.stringify($json.error) }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Has Customer Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        440,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json['Caller Email'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true
+      }
+    },
+    {
+      "name": "Send Customer Reminder",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        960,
+        140
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json['Caller Email'] }}",
+        "subject": "=Reminder: your appointment tomorrow",
+        "emailType": "text",
+        "message": "=Hi {{ $json['Caller Name'] }},\n\nJust a quick reminder about your appointment:\n\nWhat: {{ $json['Service Requested'] }}\nWhen: {{ $json['Start Time'] }}\n\nIf you need to change or cancel it, just give us a ring and our assistant will sort it out.\n\nSee you then.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Customer Reminder Sent OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1220,
+        140
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c3",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notExists",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true
+      }
+    },
+    {
+      "name": "Mark Reminder Sent",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1480,
+        60
+      ],
+      "parameters": {
+        "resource": "record",
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Get Appointments Due in 24h').item.json.id }}",
+            "Reminder Sent": "true",
+            "Reminder Sent At": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        }
+      }
+    },
+    {
+      "name": "Log Reminder Failure",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1480,
+        220
+      ],
+      "parameters": {
+        "resource": "record",
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Get Appointments Due in 24h').item.json.id }}",
+            "Reminder Error": "=Reminder email failed to send. It will be retried on the next hourly scan."
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        }
+      }
+    },
+    {
+      "name": "Alert Owner - No Email On File",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        960,
+        400
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "=Ring this customer - appointment tomorrow, no email on file",
+        "emailType": "text",
+        "message": "=This appointment is due in the next 24 hours and we have no email address for the customer, so no reminder could be sent automatically.\n\nName: {{ $json['Caller Name'] }}\nPhone: {{ $json['Caller Phone'] }}\nWhat: {{ $json['Service Requested'] }}\nWhen: {{ $json['Start Time'] }}\n\nGive them a quick call.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Mark Reminder Sent (Owner Notified)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1220,
+        400
+      ],
+      "parameters": {
+        "resource": "record",
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Get Appointments Due in 24h').item.json.id }}",
+            "Reminder Sent": "true",
+            "Reminder Sent At": "={{ $now.toISO() }}",
+            "Reminder Error": "No customer email on file - owner was emailed to call them instead."
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every Hour": {
+      "main": [
+        [
+          {
+            "node": "Get Appointments Due in 24h",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Appointments Due in 24h": {
+      "main": [
+        [
+          {
+            "node": "Lookup OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup OK?": {
+      "main": [
+        [
+          {
+            "node": "Has Customer Email?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert - Reminder Scan Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Customer Email?": {
+      "main": [
+        [
+          {
+            "node": "Send Customer Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Owner - No Email On File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Customer Reminder": {
+      "main": [
+        [
+          {
+            "node": "Customer Reminder Sent OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customer Reminder Sent OK?": {
+      "main": [
+        [
+          {
+            "node": "Mark Reminder Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Reminder Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Owner - No Email On File": {
+      "main": [
+        [
+          {
+            "node": "Mark Reminder Sent (Owner Notified)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

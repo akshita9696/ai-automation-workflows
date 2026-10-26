@@ -1,0 +1,397 @@
+{
+  "name": "1 - Log New Quote",
+  "nodes": [
+    {
+      "name": "Sticky Note - s-setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -700,
+        -300
+      ],
+      "parameters": {
+        "width": 620,
+        "height": 520,
+        "color": 4,
+        "content": "## SETUP - READ THIS FIRST\n\n**What this system does:** every quote you send gets chased automatically until the\nclient replies, or you mark it won or lost. It stops the moment any of those happen.\n\n### Before switching on, three things must be filled in\n\n1. **Airtable base and table IDs.** Every Airtable node below has a placeholder\n   (`appREPLACE_...` / `tblREPLACE_...`). Build the base first - the exact columns are\n   listed in `/workflows/00 - Quote Follow-Up - HANDOFF AND RUN GUIDE.md`.\n2. **Airtable token.** These nodes currently point at the *Lead Gen* token, which has\n   NO access to this new base. Create a token scoped to the Quote Follow-Up base and\n   select it on every Airtable node.\n   WARNING: a token missing scope on a base fails **silently** - Airtable returns an\n   empty list, not an error. If a chase never sends, check the token before the logic.\n3. **Owner email.** Currently `you@example.com`. Change it to wherever alerts should land.\n\n### Free-plan note\nThe daily sweep is deliberately once a day. Do not move it to hourly on the Airtable\nfree plan - a 15-minute poll is what burned the whole monthly allowance in September.\n"
+      }
+    },
+    {
+      "name": "Sticky Note - s-1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -300
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 200,
+        "color": 7,
+        "content": "## 1. A quote goes out\n\nAnything that can send a web request can log a quote here - a form, the client's CRM, or a button in Airtable.\n\nSend a POST with: `client_name`, `client_email`, `quote_description`, `quote_value`, and optionally `client_phone`, `owner_email`, `reference`.\n\nThe reply tells the sender whether it was logged."
+      }
+    },
+    {
+      "name": "Sticky Note - s-2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        900,
+        -300
+      ],
+      "parameters": {
+        "width": 460,
+        "height": 200,
+        "color": 3,
+        "content": "## 2. If Airtable refuses\n\nThe register is the whole system - if a quote never lands in it, it is never chased and nobody would know.\n\nSo a failed write emails you instead of failing quietly, and the sender is told it did not save."
+      }
+    },
+    {
+      "name": "Receive New Quote",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quote-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "name": "Normalize Quote Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "client_name",
+              "type": "string",
+              "value": "={{ ($json.body.client_name || '').trim() }}"
+            },
+            {
+              "id": "a2",
+              "name": "client_email",
+              "type": "string",
+              "value": "={{ ($json.body.client_email || '').trim().toLowerCase() }}"
+            },
+            {
+              "id": "a3",
+              "name": "client_phone",
+              "type": "string",
+              "value": "={{ $json.body.client_phone || '' }}"
+            },
+            {
+              "id": "a4",
+              "name": "quote_description",
+              "type": "string",
+              "value": "={{ $json.body.quote_description || '' }}"
+            },
+            {
+              "id": "a5",
+              "name": "quote_value",
+              "type": "string",
+              "value": "={{ $json.body.quote_value || '' }}"
+            },
+            {
+              "id": "a6",
+              "name": "reference",
+              "type": "string",
+              "value": "={{ $json.body.reference || '' }}"
+            },
+            {
+              "id": "a7",
+              "name": "owner_email",
+              "type": "string",
+              "value": "={{ $json.body.owner_email || 'you@example.com' }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Required Fields Present?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ String($json.client_email && $json.client_name && $json.quote_description ? 'ok' : '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Build Register Row",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        660,
+        -100
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "date_sent",
+              "type": "string",
+              "value": "={{ $now.toFormat('yyyy-MM-dd') }}"
+            },
+            {
+              "id": "a2",
+              "name": "next_chase_due",
+              "type": "string",
+              "value": "={{ $now.plus({ days: 3 }).toFormat('yyyy-MM-dd') }}"
+            },
+            {
+              "id": "a3",
+              "name": "status",
+              "type": "string",
+              "value": "Open"
+            },
+            {
+              "id": "a4",
+              "name": "touches_sent",
+              "type": "number",
+              "value": "={{ 0 }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Create Quote Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "position": [
+        880,
+        -100
+      ],
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_QUOTE_BASE",
+          "cachedResultName": "Quote Follow-Up"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_QUOTES",
+          "cachedResultName": "Quotes"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Client Name": "={{ $('Normalize Quote Input').item.json.client_name }}",
+            "Client Email": "={{ $('Normalize Quote Input').item.json.client_email }}",
+            "Client Phone": "={{ $('Normalize Quote Input').item.json.client_phone }}",
+            "Reference": "={{ $('Normalize Quote Input').item.json.reference }}",
+            "Quote Description": "={{ $('Normalize Quote Input').item.json.quote_description }}",
+            "Quote Value": "={{ $('Normalize Quote Input').item.json.quote_value }}",
+            "Owner Email": "={{ $('Normalize Quote Input').item.json.owner_email }}",
+            "Date Sent": "={{ $json.date_sent }}",
+            "Status": "Open",
+            "Touches Sent": "={{ 0 }}",
+            "Next Chase Due": "={{ $json.next_chase_due }}",
+            "Opted Out": "={{ false }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Respond Logged",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        -200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ logged: true, client: $('Normalize Quote Input').item.json.client_name, first_chase_due: $('Build Register Row').item.json.next_chase_due }) }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Alert Owner - Register Write Failed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "=A quote could NOT be logged: {{ $('Normalize Quote Input').item.json.client_name }}",
+        "emailType": "text",
+        "message": "=A quote came in but Airtable refused to save it, so it will never be chased.\n\nClient: {{ $('Normalize Quote Input').item.json.client_name }}\nEmail: {{ $('Normalize Quote Input').item.json.client_email }}\nQuote: {{ $('Normalize Quote Input').item.json.quote_description }}\nValue: {{ $('Normalize Quote Input').item.json.quote_value }}\n\nWhat Airtable said: {{ JSON.stringify($json.error || $json) }}\n\nAdd it to the register by hand, or fix the connection and resend.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Respond Write Failed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 500,
+        "responseBody": "={{ JSON.stringify({ logged: false, reason: 'register write failed - the owner has been emailed' }) }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Respond Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        140
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 400,
+        "responseBody": "={{ JSON.stringify({ logged: false, reason: 'client_name, client_email and quote_description are all required' }) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Receive New Quote": {
+      "main": [
+        [
+          {
+            "node": "Normalize Quote Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Quote Input": {
+      "main": [
+        [
+          {
+            "node": "Required Fields Present?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Required Fields Present?": {
+      "main": [
+        [
+          {
+            "node": "Build Register Row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Register Row": {
+      "main": [
+        [
+          {
+            "node": "Create Quote Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Quote Record": {
+      "main": [
+        [
+          {
+            "node": "Respond Logged",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Owner - Register Write Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Owner - Register Write Failed": {
+      "main": [
+        [
+          {
+            "node": "Respond Write Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

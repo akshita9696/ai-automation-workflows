@@ -1,0 +1,833 @@
+{
+  "name": "PM Template - Job Intake",
+  "nodes": [
+    {
+      "name": "Poll Job Intake Inbox",
+      "notes": "NO CREDENTIAL ATTACHED YET - create/attach the client's job-intake inbox Gmail OAuth2 credential before activating. Polling, not push - practical latency ~1-2 min on n8n Cloud, same pattern as gmail-reply-handling.json's 'Poll Inbox for Replies'. This is the Phase 1 test path Gemini suggested: a mock email like 'Hi, I live at 10 Downing Street. My boiler is broken. Please call me on 07123456789' should flow through to a clean Airtable job card.",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        -144
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "readStatus": "unread"
+        }
+      }
+    },
+    {
+      "name": "Map Gmail Fields",
+      "notes": "Gmail Trigger's simplified header/body field names (From, Subject, text/snippet) assumed - verify against a real received email, same caveat as gmail-reply-handling.json's equivalent node. tenant_name/phone/address left blank here - the Job Analysis Agent downstream extracts them from raw_message_text since email is unstructured.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        -144
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "g1",
+              "name": "tenant_email",
+              "type": "string",
+              "value": "={{ ((($json.From || '').match(/<(.+)>/) || [null, $json.From])[1] || '').toLowerCase().trim() }}"
+            },
+            {
+              "id": "g2",
+              "name": "raw_message_text",
+              "type": "string",
+              "value": "={{ $json.text || $json.snippet || '' }}"
+            },
+            {
+              "id": "g3",
+              "name": "email_subject",
+              "type": "string",
+              "value": "={{ $json.Subject }}"
+            },
+            {
+              "id": "g4",
+              "name": "tenant_name",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "g5",
+              "name": "tenant_phone",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "g6",
+              "name": "property_address",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "g7",
+              "name": "source",
+              "type": "string",
+              "value": "Email"
+            },
+            {
+              "id": "g8",
+              "name": "submitted_at",
+              "type": "string",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Tally Form Webhook (Fixflo Stand-in)",
+      "notes": "Stands in for Fixflo's future webhook until their sandbox/API access arrives (request already sent - see Phase 1.5 in the plan). Build a Tally form with fields: Tenant Name, Tenant Email, Tenant Phone, Property Address, Issue Description (textarea) - point Tally's Webhook integration at this node's Production URL. Payload lands under $json.body.* (n8n wraps webhook POST bodies), same as tally-lead-intake.json and calcom-meeting-sync.json in this repo.",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "onError": "continueRegularOutput",
+      "position": [
+        0,
+        304
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pm-tally-intake",
+        "options": {}
+      }
+    },
+    {
+      "name": "Map Tally Fields",
+      "notes": "Field-matching by Tally field type (INPUT_EMAIL/INPUT_PHONE_NUMBER/TEXTAREA) with label-substring fallback, same approach as tally-lead-intake.json's 'Map Tally Fields' node. Tally already gives structured fields, so tenant_name/phone/address are set directly here rather than left for AI extraction.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        304
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "t1",
+              "name": "tenant_email",
+              "type": "string",
+              "value": "={{ ((($json.body.data.fields || []).find(f => f.type === 'INPUT_EMAIL') || {}).value || '').toString().toLowerCase().trim() || null }}"
+            },
+            {
+              "id": "t2",
+              "name": "tenant_name",
+              "type": "string",
+              "value": "={{ (($json.body.data.fields || []).find(f => (f.label||'').toLowerCase().includes('name')) || {}).value || null }}"
+            },
+            {
+              "id": "t3",
+              "name": "tenant_phone",
+              "type": "string",
+              "value": "={{ (($json.body.data.fields || []).find(f => f.type === 'INPUT_PHONE_NUMBER' || (f.label||'').toLowerCase().includes('phone')) || {}).value || null }}"
+            },
+            {
+              "id": "t4",
+              "name": "property_address",
+              "type": "string",
+              "value": "={{ (($json.body.data.fields || []).find(f => (f.label||'').toLowerCase().includes('address')) || {}).value || null }}"
+            },
+            {
+              "id": "t5",
+              "name": "raw_message_text",
+              "type": "string",
+              "value": "={{ (($json.body.data.fields || []).find(f => f.type === 'TEXTAREA') || ($json.body.data.fields || []).find(f => (f.label||'').toLowerCase().includes('issue') || (f.label||'').toLowerCase().includes('problem')) || {}).value || null }}"
+            },
+            {
+              "id": "t6",
+              "name": "source",
+              "type": "string",
+              "value": "Tally (Fixflo Stand-in)"
+            },
+            {
+              "id": "t7",
+              "name": "submitted_at",
+              "type": "string",
+              "value": "={{ ($json.body.data && $json.body.data.createdAt) || $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Normalize Job Data",
+      "notes": "Convergence point after shape-specific mapping (Map Gmail Fields / Map Tally Fields), mirroring tally-lead-intake.json's 'Normalize Lead Data' pattern. Source-agnostic by design so adding Fixflo later (Phase 1.5) needs no changes downstream of this node.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        528,
+        80
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n1",
+              "name": "tenant_name",
+              "type": "string",
+              "value": "={{ $json.tenant_name || null }}"
+            },
+            {
+              "id": "n2",
+              "name": "tenant_email",
+              "type": "string",
+              "value": "={{ $json.tenant_email }}"
+            },
+            {
+              "id": "n3",
+              "name": "tenant_phone",
+              "type": "string",
+              "value": "={{ $json.tenant_phone || null }}"
+            },
+            {
+              "id": "n4",
+              "name": "property_address",
+              "type": "string",
+              "value": "={{ $json.property_address || null }}"
+            },
+            {
+              "id": "n5",
+              "name": "raw_message_text",
+              "type": "string",
+              "value": "={{ $json.raw_message_text || '' }}"
+            },
+            {
+              "id": "n6",
+              "name": "source",
+              "type": "string",
+              "value": "={{ $json.source }}"
+            },
+            {
+              "id": "n7",
+              "name": "submitted_at",
+              "type": "string",
+              "value": "={{ $json.submitted_at }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Has Required Fields?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.tenant_email}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{$json.tenant_email}}",
+              "rightValue": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Log Invalid Submission",
+      "notes": "Terminal: no job card created - submission lacked even a valid tenant email. Matches tally-lead-intake.json's 'Log Invalid Submission' pattern.",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        320
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Job Analysis Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1040,
+        -16
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=New job intake submission (source: {{$json.source}}):\nKnown tenant name: {{$json.tenant_name}}\nKnown tenant email: {{$json.tenant_email}}\nKnown tenant phone: {{$json.tenant_phone}}\nKnown property address: {{$json.property_address}}\nRaw message text (may contain the address/phone/issue if not already known above): {{$json.raw_message_text}}\n\nAnalyze this job intake per your instructions and produce the required structured output.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are the job-intake assistant for a UK property-management/trade company (plumbing, electrical, general repairs). For every submission you must:\n1. If tenant_name, tenant_phone, or property_address are missing/empty, extract them from the raw message text. Never fabricate a value that isn't present anywhere in the input - leave it null if truly absent.\n2. Produce a clean, concise issue_description (1-2 sentences) summarizing the reported problem, using the raw message text and/or already-known fields.\n3. Classify priority as one of: Emergency (e.g. gas leak, flooding, no heating/hot water in winter, electrical hazard, security/lock-out issue), Urgent (e.g. active leak, broken appliance, partial loss of service), or Standard (e.g. cosmetic issues, non-urgent repairs, general maintenance requests).\n4. Honestly self-assess your confidence (0-1) in the extracted fields. If property_address OR issue_description could not be determined, OR confidence is low, set needs_manual_review=true and explain why in review_reason. Never guess a property address."
+        }
+      }
+    },
+    {
+      "name": "OpenAI Chat Model (Intake)",
+      "notes": "Reusing the agency's existing OpenAI credit credential for this demo/template scaffold (no client signed yet) - swap to a client-specific key before production use, same caveat as tally-lead-intake.json.",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        912,
+        224
+      ],
+      "parameters": {
+        "model": {
+          "mode": "id",
+          "value": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      }
+    },
+    {
+      "name": "Job Analysis Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1072,
+        224
+      ],
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\"tenant_name\",\"tenant_phone\",\"property_address\",\"issue_description\",\"priority\",\"confidence\",\"needs_manual_review\",\"review_reason\"],\n  \"properties\": {\n    \"tenant_name\": {\"type\": [\"string\",\"null\"]},\n    \"tenant_phone\": {\"type\": [\"string\",\"null\"]},\n    \"property_address\": {\"type\": [\"string\",\"null\"]},\n    \"issue_description\": {\"type\": [\"string\",\"null\"]},\n    \"priority\": {\"type\": \"string\", \"enum\": [\"Standard\",\"Urgent\",\"Emergency\"]},\n    \"confidence\": {\"type\": \"number\", \"minimum\": 0, \"maximum\": 1},\n    \"needs_manual_review\": {\"type\": \"boolean\"},\n    \"review_reason\": {\"type\": \"string\"}\n  }\n}"
+      }
+    },
+    {
+      "name": "Dedup Check - Existing Open Job",
+      "notes": "NO CREDENTIAL ATTACHED YET - create/attach an Airtable Personal Access Token credential, and fill in the real base/table IDs, once the client's Airtable base exists (see workflows/README.md). alwaysOutputData=true is required here: Airtable Search returns zero items on no match, which would otherwise starve the 'Duplicate Job Found?' IF node of any input and silently break the whole downstream chain (both branches). Formula quote-escaping for addresses containing apostrophes not yet handled - revisit once tested against real data.",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1344,
+        -16
+      ],
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "filterByFormula": "={{ \"AND({Property Address} = '\" + (($('Job Analysis Agent').item.json.output && $('Job Analysis Agent').item.json.output.property_address) || $('Normalize Job Data').item.json.property_address || '') + \"', NOT(OR({Status} = 'Paid', {Status} = 'Archived')), IS_AFTER({Created Time}, DATEADD(NOW(), -14, 'days')))\" }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Duplicate Job Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1568,
+        -16
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.id}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Append Note to Existing Job",
+      "notes": "NO CREDENTIAL ATTACHED YET - same Airtable credential/base/table as 'Dedup Check - Existing Open Job'. Avoids creating a duplicate job card when the same issue is reported twice (e.g. once via Fixflo/Tally, once via direct email) - appends a note to the existing open job instead.",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1824,
+        192
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$json.id}}",
+            "Raw Source Payload": "={{ (($json.fields && $json.fields['Raw Source Payload']) || '') + '\\n---\\nDuplicate report received ' + $now.toISO() + ' via ' + $('Normalize Job Data').item.json.source + ': ' + ((($('Job Analysis Agent').item.json.output && $('Job Analysis Agent').item.json.output.issue_description)) || $('Normalize Job Data').item.json.raw_message_text || '') }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Needs Manual Review?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1824,
+        -144
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$('Job Analysis Agent').item.json.output.needs_manual_review}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{$('Job Analysis Agent').item.json.output.property_address}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c3",
+              "leftValue": "={{$('Job Analysis Agent').item.json.output.issue_description}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Create Job Card - Needs Review",
+      "notes": "NO CREDENTIAL ATTACHED YET - same Airtable credential/base/table as the dedup-check node above. Column names must exactly match the Jobs table schema (case-sensitive, per this repo's established Airtable/Sheets convention).",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2080,
+        -256
+      ],
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Status": "Needs Review",
+            "Source": "={{$('Normalize Job Data').item.json.source}}",
+            "Tenant Name": "={{$('Job Analysis Agent').item.json.output.tenant_name || $('Normalize Job Data').item.json.tenant_name}}",
+            "Tenant Email": "={{$('Normalize Job Data').item.json.tenant_email}}",
+            "Tenant Phone": "={{$('Job Analysis Agent').item.json.output.tenant_phone || $('Normalize Job Data').item.json.tenant_phone}}",
+            "Property Address": "={{$('Job Analysis Agent').item.json.output.property_address || $('Normalize Job Data').item.json.property_address}}",
+            "Issue Description": "={{$('Job Analysis Agent').item.json.output.issue_description}}",
+            "Priority": "={{$('Job Analysis Agent').item.json.output.priority}}",
+            "Needs Review": true,
+            "Review Reason": "={{$('Job Analysis Agent').item.json.output.review_reason}}",
+            "Raw Source Payload": "={{$('Normalize Job Data').item.json.raw_message_text || ''}}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Notify Coordinator - Needs Review",
+      "notes": "NO CREDENTIAL ATTACHED YET - attach the client Gmail OAuth2 credential. PLACEHOLDER 'sendTo' - set to the office coordinator's real email before activating.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2352,
+        -256
+      ],
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=[Needs Review] New job intake ({{$('Normalize Job Data').item.json.source}})",
+        "emailType": "text",
+        "message": "=A new job intake needs manual review before it can be booked.\n\nTenant: {{$('Job Analysis Agent').item.json.output.tenant_name || $('Normalize Job Data').item.json.tenant_name}}\nEmail: {{$('Normalize Job Data').item.json.tenant_email}}\nPhone: {{$('Job Analysis Agent').item.json.output.tenant_phone || $('Normalize Job Data').item.json.tenant_phone}}\nAddress: {{$('Job Analysis Agent').item.json.output.property_address || 'NOT DETERMINED'}}\nIssue: {{$('Job Analysis Agent').item.json.output.issue_description || 'NOT DETERMINED'}}\nPriority: {{$('Job Analysis Agent').item.json.output.priority}}\n\nReview reason: {{$('Job Analysis Agent').item.json.output.review_reason}}\n\nRaw message:\n{{$('Normalize Job Data').item.json.raw_message_text}}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Create Job Card",
+      "notes": "NO CREDENTIAL ATTACHED YET - same Airtable credential/base/table as the dedup-check node above. Column names must exactly match the Jobs table schema (case-sensitive).",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2080,
+        -16
+      ],
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Status": "New Intake",
+            "Source": "={{$('Normalize Job Data').item.json.source}}",
+            "Tenant Name": "={{$('Job Analysis Agent').item.json.output.tenant_name || $('Normalize Job Data').item.json.tenant_name}}",
+            "Tenant Email": "={{$('Normalize Job Data').item.json.tenant_email}}",
+            "Tenant Phone": "={{$('Job Analysis Agent').item.json.output.tenant_phone || $('Normalize Job Data').item.json.tenant_phone}}",
+            "Property Address": "={{$('Job Analysis Agent').item.json.output.property_address || $('Normalize Job Data').item.json.property_address}}",
+            "Issue Description": "={{($('Job Analysis Agent').item.json.output && $('Job Analysis Agent').item.json.output.issue_description) || $('Normalize Job Data').item.json.raw_message_text}}",
+            "Priority": "={{($('Job Analysis Agent').item.json.output && $('Job Analysis Agent').item.json.output.priority) || 'Urgent'}}",
+            "Needs Review": "={{ !$('Job Analysis Agent').item.json.output || !!$('Job Analysis Agent').item.json.output.needs_manual_review }}",
+            "Review Reason": "={{ $('Job Analysis Agent').item.json.output ? ($('Job Analysis Agent').item.json.output.review_reason || '') : 'AI classification failed - manual review required' }}",
+            "Raw Source Payload": "={{$('Normalize Job Data').item.json.raw_message_text || ''}}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Priority == Emergency?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2352,
+        -16
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$('Job Analysis Agent').item.json.output.priority}}",
+              "rightValue": "Emergency",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Notify Coordinator - Emergency",
+      "notes": "NO CREDENTIAL ATTACHED YET - attach the client Gmail OAuth2 credential. PLACEHOLDER 'sendTo' - set to the office coordinator/owner's real email before activating.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2608,
+        -96
+      ],
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=[EMERGENCY] {{$('Job Analysis Agent').item.json.output.property_address}}",
+        "emailType": "text",
+        "message": "=An EMERGENCY priority job just came in - needs immediate attention.\n\nTenant: {{$('Job Analysis Agent').item.json.output.tenant_name || $('Normalize Job Data').item.json.tenant_name}}\nPhone: {{$('Job Analysis Agent').item.json.output.tenant_phone || $('Normalize Job Data').item.json.tenant_phone}}\nAddress: {{$('Job Analysis Agent').item.json.output.property_address}}\nIssue: {{$('Job Analysis Agent').item.json.output.issue_description}}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Poll Job Intake Inbox": {
+      "main": [
+        [
+          {
+            "node": "Map Gmail Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Gmail Fields": {
+      "main": [
+        [
+          {
+            "node": "Normalize Job Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tally Form Webhook (Fixflo Stand-in)": {
+      "main": [
+        [
+          {
+            "node": "Map Tally Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Tally Fields": {
+      "main": [
+        [
+          {
+            "node": "Normalize Job Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Job Data": {
+      "main": [
+        [
+          {
+            "node": "Has Required Fields?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Required Fields?": {
+      "main": [
+        [
+          {
+            "node": "Job Analysis Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Invalid Submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model (Intake)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Job Analysis Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Analysis Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Job Analysis Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Analysis Agent": {
+      "main": [
+        [
+          {
+            "node": "Dedup Check - Existing Open Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup Check - Existing Open Job": {
+      "main": [
+        [
+          {
+            "node": "Duplicate Job Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicate Job Found?": {
+      "main": [
+        [
+          {
+            "node": "Append Note to Existing Job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs Manual Review?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Manual Review?": {
+      "main": [
+        [
+          {
+            "node": "Create Job Card - Needs Review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Job Card",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Job Card - Needs Review": {
+      "main": [
+        [
+          {
+            "node": "Notify Coordinator - Needs Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Job Card": {
+      "main": [
+        [
+          {
+            "node": "Priority == Emergency?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Priority == Emergency?": {
+      "main": [
+        [
+          {
+            "node": "Notify Coordinator - Emergency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

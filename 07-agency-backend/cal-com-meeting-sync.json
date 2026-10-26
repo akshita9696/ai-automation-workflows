@@ -1,0 +1,230 @@
+{
+  "name": "Cal.com Meeting Sync (Agency)",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1",
+              "name": "attendee_email",
+              "type": "string",
+              "value": "={{ ($json.body && $json.body.payload && $json.body.payload.attendees && $json.body.payload.attendees[0] && $json.body.payload.attendees[0].email || '').toLowerCase().trim() }}"
+            },
+            {
+              "id": "b2",
+              "name": "meeting_datetime",
+              "type": "string",
+              "value": "={{ $json.body && $json.body.payload && $json.body.payload.startTime }}"
+            },
+            {
+              "id": "b3",
+              "name": "cal_booking_uid",
+              "type": "string",
+              "value": "={{ $json.body && $json.body.payload && $json.body.payload.uid }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Extract Booking Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        0
+      ],
+      "notes": "Cal.com webhook payload field paths: payload lives under $json.body.payload (n8n wraps webhook POST bodies under 'body', same as the Tally intake workflow). Fixed 2026-07-19 after execution #25/#14 showed attendee_email/meeting_datetime/cal_booking_uid all coming out blank because the expressions read $json.payload directly."
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Email",
+              "lookupValue": "={{$json.attendee_email}}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "name": "Look Up Lead by Email",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        528,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Swap PLACEHOLDER_LEADS_SHEET_ID for the real Spreadsheet ID and attach Google Sheets OAuth2 credential."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.Email}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Lead Record Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "Unknown Attendee - No Lead Record",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        160
+      ],
+      "notes": "By design: a Cal.com booking from an email with no existing Tally-sourced lead row is silently dropped rather than creating a new row. Confirm this is the desired behavior."
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [],
+          "value": {
+            "Email": "={{$('Extract Booking Fields').item.json.attendee_email}}",
+            "Meeting Status": "Booked",
+            "Meeting Date/Time": "={{$('Extract Booking Fields').item.json.meeting_datetime}}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Update Meeting Info",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1040,
+        -96
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Swap PLACEHOLDER_LEADS_SHEET_ID for the real Spreadsheet ID and attach Google Sheets OAuth2 credential."
+    },
+    {
+      "name": "Cal.com Booking Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "calcom-booking-created",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "notes": "Register this URL manually in Cal.com: Settings → Developer → Webhooks → Add Webhook, subscribed to 'Booking Created'. Bypasses Cal.com's v1-only webhook-management API entirely.",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Extract Booking Fields": {
+      "main": [
+        [
+          {
+            "node": "Look Up Lead by Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look Up Lead by Email": {
+      "main": [
+        [
+          {
+            "node": "Lead Record Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Record Found?": {
+      "main": [
+        [
+          {
+            "node": "Update Meeting Info",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unknown Attendee - No Lead Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cal.com Booking Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Booking Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

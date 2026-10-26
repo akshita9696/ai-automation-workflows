@@ -1,0 +1,727 @@
+{
+  "name": "3 - Reply and Outcome Handler",
+  "nodes": [
+    {
+      "name": "Sticky Note - s-setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -320
+      ],
+      "parameters": {
+        "width": 600,
+        "height": 480,
+        "color": 4,
+        "content": "## THE STOP SWITCH\n\nThis is what stops the chasing. Without it the engine would keep nudging someone who has already written back, which is the single worst thing a follow-up system can do.\n\nIt watches the inbox. When an email arrives it checks whether the sender is someone with a live quote. If they are, the chase stops immediately and you get told.\n\n**Fill in before switching on:** the Airtable base/table IDs (`appREPLACE_...`), a token scoped to this base, and the owner email.\n\n**Order matters.** Switch this on BEFORE you switch on `2 - Chase Due Quotes`, never after."
+      }
+    },
+    {
+      "name": "Sticky Note - s-safe",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        780,
+        -320
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 300,
+        "color": 5,
+        "content": "## Two ways to spot an opt-out\n\nGemini reads the reply and decides what it means.\n\n**If Gemini fails**, the workflow does not guess. It scans the text itself for the obvious opt-out words - unsubscribe, stop emailing, remove me - and if it finds any, it treats the reply as an opt-out.\n\nThe safety net errs towards stopping. Wrongly stopping a chase costs you one nudge. Wrongly continuing one after somebody asked you to stop is the thing that gets an email domain blocked."
+      }
+    },
+    {
+      "name": "Sticky Note - s-out",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        -320
+      ],
+      "parameters": {
+        "width": 460,
+        "height": 260,
+        "color": 3,
+        "content": "## What happens next\n\n**Opted out:** the record is flagged permanently. The engine filters on that flag, so they can never be picked up again - not by this quote, not by a future one.\n\n**Normal reply:** status becomes Replied and the next-due date is cleared, which takes it out of the engine's search. You get the reply forwarded so you can answer it like a human."
+      }
+    },
+    {
+      "name": "Watch the Inbox for Replies",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -120,
+        0
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyHour"
+            }
+          ]
+        },
+        "simple": true,
+        "filters": {},
+        "options": {}
+      }
+    },
+    {
+      "name": "Normalize the Reply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        100,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "from_email",
+              "type": "string",
+              "value": "={{ (($json.From || $json.from || '') + '').match(/[\\w.\\-+]+@[\\w.\\-]+\\.\\w+/)?.[0]?.toLowerCase() || '' }}"
+            },
+            {
+              "id": "a2",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ $json.Subject || $json.subject || '' }}"
+            },
+            {
+              "id": "a3",
+              "name": "reply_text",
+              "type": "string",
+              "value": "={{ ($json.snippet || $json.text || $json.textPlain || '') + '' }}"
+            },
+            {
+              "id": "a4",
+              "name": "received_at",
+              "type": "string",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Could Read a Sender Address?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ String($json.from_email) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Ignore - No Sender",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        540,
+        200
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Find a Matching Live Quote",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "position": [
+        540,
+        0
+      ],
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_QUOTE_BASE",
+          "cachedResultName": "Quote Follow-Up"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_QUOTES",
+          "cachedResultName": "Quotes"
+        },
+        "filterByFormula": "=AND(LOWER({Client Email}) = '{{ $json.from_email }}', OR({Status} = 'Open', {Status} = 'Replied'))",
+        "options": {}
+      }
+    },
+    {
+      "name": "Alert Owner - Register Lookup Failed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        540,
+        380
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "Quote reply handler could not reach the register",
+        "emailType": "text",
+        "message": "=An email came in but the quote register could not be read, so the chase for this person may not have stopped.\n\nFrom: {{ $('Normalize the Reply').item.json.from_email }}\nSubject: {{ $('Normalize the Reply').item.json.subject }}\n\nWhat Airtable said: {{ JSON.stringify($json.error || $json) }}\n\nCheck this person by hand in the register - if they have a live quote, mark it Replied now so the engine does not nudge them again tomorrow.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Is This About a Quote?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ String($json.id || '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Ignore - Not a Quote Reply",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        200
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Gemini - Reply Reader",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "retryOnFail": false,
+      "position": [
+        920,
+        400
+      ],
+      "parameters": {
+        "modelName": "models/gemini-3-flash-preview",
+        "options": {}
+      }
+    },
+    {
+      "name": "Reply Reading Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1100,
+        400
+      ],
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"intent\": {\n      \"type\": \"string\",\n      \"description\": \"One of: Interested, Not Interested, Question, Opt Out, Out Of Office, Unclear\"\n    },\n    \"is_opt_out\": {\n      \"type\": \"string\",\n      \"description\": \"The word true or the word false. true only if they asked not to be contacted again.\"\n    },\n    \"one_line_summary\": {\n      \"type\": \"string\",\n      \"description\": \"One sentence, under 25 words, saying what they actually want.\"\n    }\n  },\n  \"required\": [\n    \"intent\",\n    \"is_opt_out\",\n    \"one_line_summary\"\n  ]\n}"
+      }
+    },
+    {
+      "name": "Read the Reply",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 20000,
+      "onError": "continueErrorOutput",
+      "position": [
+        1000,
+        0
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Someone replied to a quote follow-up. Work out what they mean.\n\nFrom: {{ $('Normalize the Reply').item.json.from_email }}\nSubject: {{ $('Normalize the Reply').item.json.subject }}\n\nWhat they wrote:\n{{ $('Normalize the Reply').item.json.reply_text }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You read replies to quote follow-up emails for a small business and classify them. You never invent detail that is not in the message.\n\nPick the intent that actually fits:\n- Interested: they want to go ahead, or are close to it\n- Not Interested: they are declining this job\n- Question: they need something answered before deciding\n- Opt Out: they asked not to be emailed again\n- Out Of Office: an automatic away reply, not a real answer\n- Unclear: the message is empty, broken, or you genuinely cannot tell\n\nSet is_opt_out to the word true ONLY if they asked not to be contacted again. Declining this particular job is not an opt-out. When you are unsure, answer true - it is better to stop chasing someone who did not ask than to keep chasing someone who did."
+        }
+      }
+    },
+    {
+      "name": "Use AI Reading",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1320,
+        -120
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "intent",
+              "type": "string",
+              "value": "={{ $json.output?.intent || $json.intent || 'Unclear' }}"
+            },
+            {
+              "id": "a2",
+              "name": "is_opt_out",
+              "type": "string",
+              "value": "={{ String($json.output?.is_opt_out ?? $json.is_opt_out) === 'true' ? 'yes' : '' }}"
+            },
+            {
+              "id": "a3",
+              "name": "summary",
+              "type": "string",
+              "value": "={{ $json.output?.one_line_summary || $json.one_line_summary || '' }}"
+            },
+            {
+              "id": "a4",
+              "name": "read_by",
+              "type": "string",
+              "value": "gemini"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Fallback - Scan for Opt-Out Words",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1320,
+        120
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "intent",
+              "type": "string",
+              "value": "Needs Owner Review"
+            },
+            {
+              "id": "a2",
+              "name": "is_opt_out",
+              "type": "string",
+              "value": "={{ /\\b(unsubscribe|opt ?out|stop emailing|remove me|do not contact|dont contact|take me off)\\b/i.test($('Normalize the Reply').item.json.reply_text) ? 'yes' : '' }}"
+            },
+            {
+              "id": "a3",
+              "name": "summary",
+              "type": "string",
+              "value": "Gemini was unavailable, so this reply has not been read. Open it yourself."
+            },
+            {
+              "id": "a4",
+              "name": "read_by",
+              "type": "string",
+              "value": "fallback-keyword-scan"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Did They Ask to Stop?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ String($json.is_opt_out) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Flag as Opted Out",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1800,
+        -140
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_QUOTE_BASE",
+          "cachedResultName": "Quote Follow-Up"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_QUOTES",
+          "cachedResultName": "Quotes"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Find a Matching Live Quote').item.json.id }}",
+            "Status": "Stopped",
+            "Opted Out": "={{ true }}",
+            "Next Chase Due": "",
+            "Reply Snippet": "={{ $('Normalize the Reply').item.json.reply_text }}",
+            "Outcome Notes": "={{ 'Opted out ' + $now.toFormat('yyyy-MM-dd') + ' (detected by ' + $json.read_by + ').' }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Tell Owner They Opted Out",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2040,
+        -140
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "=Opted out of follow-ups: {{ $('Find a Matching Live Quote').item.json['Client Name'] }}",
+        "emailType": "text",
+        "message": "={{ $('Find a Matching Live Quote').item.json['Client Name'] }} ({{ $('Normalize the Reply').item.json.from_email }}) has asked not to be contacted again.\n\nThey have been flagged in the register and will never be picked up by the chaser again.\n\nWhat they wrote:\n{{ $('Normalize the Reply').item.json.reply_text }}\n\nSpotted by: {{ $('Did They Ask to Stop?').item.json.read_by }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Mark the Quote as Replied",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1800,
+        140
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_QUOTE_BASE",
+          "cachedResultName": "Quote Follow-Up"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_QUOTES",
+          "cachedResultName": "Quotes"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Find a Matching Live Quote').item.json.id }}",
+            "Status": "Replied",
+            "Next Chase Due": "",
+            "Reply Snippet": "={{ $('Normalize the Reply').item.json.reply_text }}",
+            "Outcome Notes": "={{ 'Replied ' + $now.toFormat('yyyy-MM-dd') + ' - ' + $json.intent + '. ' + $json.summary }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Forward the Reply to the Owner",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2040,
+        140
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Find a Matching Live Quote').item.json['Owner Email'] || 'you@example.com' }}",
+        "subject": "=Quote reply: {{ $('Find a Matching Live Quote').item.json['Client Name'] }} - {{ $('Did They Ask to Stop?').item.json.intent }}",
+        "emailType": "text",
+        "message": "={{ $('Find a Matching Live Quote').item.json['Client Name'] }} has replied about \"{{ $('Find a Matching Live Quote').item.json['Quote Description'] }}\" ({{ $('Find a Matching Live Quote').item.json['Quote Value'] }}).\n\nHow it reads: {{ $('Did They Ask to Stop?').item.json.intent }}\nIn one line: {{ $('Did They Ask to Stop?').item.json.summary }}\n\nWhat they wrote:\n{{ $('Normalize the Reply').item.json.reply_text }}\n\nReply to them at: {{ $('Normalize the Reply').item.json.from_email }}\n\nThe automatic chasing for this quote has stopped. Mark it Won or Lost in the register when you know which it is.",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Watch the Inbox for Replies": {
+      "main": [
+        [
+          {
+            "node": "Normalize the Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize the Reply": {
+      "main": [
+        [
+          {
+            "node": "Could Read a Sender Address?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Could Read a Sender Address?": {
+      "main": [
+        [
+          {
+            "node": "Find a Matching Live Quote",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore - No Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find a Matching Live Quote": {
+      "main": [
+        [
+          {
+            "node": "Is This About a Quote?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Owner - Register Lookup Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is This About a Quote?": {
+      "main": [
+        [
+          {
+            "node": "Read the Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore - Not a Quote Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Reply Reader": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Read the Reply",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply Reading Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Read the Reply",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Reply": {
+      "main": [
+        [
+          {
+            "node": "Use AI Reading",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback - Scan for Opt-Out Words",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use AI Reading": {
+      "main": [
+        [
+          {
+            "node": "Did They Ask to Stop?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback - Scan for Opt-Out Words": {
+      "main": [
+        [
+          {
+            "node": "Did They Ask to Stop?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Did They Ask to Stop?": {
+      "main": [
+        [
+          {
+            "node": "Flag as Opted Out",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark the Quote as Replied",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flag as Opted Out": {
+      "main": [
+        [
+          {
+            "node": "Tell Owner They Opted Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark the Quote as Replied": {
+      "main": [
+        [
+          {
+            "node": "Forward the Reply to the Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

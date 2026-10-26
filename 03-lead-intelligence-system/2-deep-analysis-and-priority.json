@@ -1,0 +1,2488 @@
+{
+  "name": "2 - Deep Analysis and Priority",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## SETUP, do this first\n\nBase/table are pre-filled on every Airtable node. Just:\n1. Workflow 1 must have already filled tab #3 with \"Pending Analysis\" rows.\n2. Click each node and pick its credential from the dropdown: Airtable nodes -> \"Airtable Personal Access Token (Lead Gen $0 Framework)\"; DataForSEO node -> \"DataForSEO API\"; Firecrawl node -> \"Firecrawl API\"; YouTube nodes -> \"YouTube Data API Key\"; both Gemini Chat Model nodes -> \"Google Gemini API\".\n3. First run: check the DataForSEO/Firecrawl/YouTube response shape in the execution log against the field names used in the \"Normalize\" nodes, external APIs occasionally rename fields, adjust if needed.",
+        "height": 300,
+        "width": 640,
+        "color": 7
+      },
+      "name": "Sticky Note 38",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        432,
+        -816
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 1. Get Pending Rows, Loop One at a Time\nReads every \"Pending Analysis\" row from tab #3 and processes them one business at a time.",
+        "height": 696,
+        "width": 836,
+        "color": 4
+      },
+      "name": "Section - 1. Get Pending Rows, Loop One at a Time",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -176,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 2. Reviews + Website (Cheap, Always-On Data)\nLast 50 reviews only, plain-text website scrape only, the two cheapest data sources, always fetched.",
+        "height": 972,
+        "width": 940,
+        "color": 5
+      },
+      "name": "Section - 2. Reviews + Website (Cheap, Always-On Data)",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        784,
+        -272
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 3. Business's Own YouTube Channel\nChecks the website text for an embedded channel link first (free); only searches by name as a fallback.",
+        "height": 1172,
+        "width": 1692,
+        "color": 6
+      },
+      "name": "Section - 3. Business's Own YouTube Channel",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3280,
+        -448
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 4. Gemini Finds the Problem\nOne business per AI call, never batched, mixing businesses is exactly what breaks accuracy.",
+        "height": 1196,
+        "width": 1040,
+        "color": 7
+      },
+      "name": "Section - 4. Gemini Finds the Problem",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5120,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 5. Owner's Channel, Priority Score & Save\nLooks up the owner's personal YouTube channel as a bonus, scores priority (problem strength + data completeness), then updates tab #3 and copies weak leads to tab #1.",
+        "height": 1040,
+        "width": 3028,
+        "color": 3
+      },
+      "name": "Section - 5. Owner's Channel, Priority Score & Save",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        6400,
+        -384
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "Start Analysis Run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -112,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX",
+          "cachedResultName": "Lead Gen $0 Framework"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX",
+          "cachedResultName": "3 - Analysed"
+        },
+        "filterByFormula": "{Status} = 'Waiting for analysis'",
+        "options": {}
+      },
+      "name": "Get Pending Records",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        176,
+        208
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Base + table pre-filled (tab #3 Analysed), just pick the credential. CREDENTIAL: select or create \"Airtable Personal Access Token (Lead Gen $0 Framework)\" here, left blank on purpose, n8n's API auto-attaches an unrelated existing credential of the same type if one is provided by name only."
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        448,
+        208
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "All Businesses Processed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        448,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": []
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Normalize Reviews",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        976,
+        112
+      ],
+      "notes": "Pass-through. The review figures are now worked out up front in 'Merge Reviews into Records'. This node is kept so every downstream node that reads $('Normalize Reviews') keeps working untouched."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.firecrawl.dev/v1/scrape",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"url\": $json.website, \"formats\": [\"markdown\", \"links\"], \"onlyMainContent\": false }) }}",
+        "options": {}
+      },
+      "name": "Scrape Website - Firecrawl",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1248,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput",
+      "notes": "Plain scrape mode (markdown format), never \"extract\", Trick 2 from the framework. 1 credit vs 9. CREDENTIAL: select or create \"Firecrawl API\" here, left blank on purpose, n8n's API auto-attaches an unrelated existing credential of the same type if one is provided by name only."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "website_text",
+              "type": "string",
+              "value": "={{ ($json.data && $json.data.markdown ? $json.data.markdown : 'NOT FOUND').substring(0, 4000) }}"
+            },
+            {
+              "id": "a1",
+              "name": "website_links",
+              "type": "string",
+              "value": "={{ ($json.data && Array.isArray($json.data.links) ? Array.from(new Set($json.data.links)).slice(0, 200).join('\\n') : 'NONE FOUND').substring(0, 2500) }}"
+            },
+            {
+              "id": "a2",
+              "name": "founded_year",
+              "type": "number",
+              "value": "={{ Number(( String(($json.data && $json.data.markdown) || '').match(/(?:since|established|est\\.|serving[^.]{0,40}since)\\s*((?:19|20)\\d{2})/i) || ['',0] )[1]) }}"
+            },
+            {
+              "id": "a3",
+              "name": "secondary_url",
+              "type": "string",
+              "value": "={{ (function(){ var all = ($json.data && Array.isArray($json.data.links)) ? $json.data.links : []; var home = String($('Normalize Reviews').item.json.website || '').toLowerCase().replace(/\\/$/, ''); function pick(pats){ for (var i=0;i<all.length;i++){ var low = String(all[i]).toLowerCase(); if (low.replace(/\\/$/, '') === home) continue; if (low.indexOf('mailto:') === 0 || low.indexOf('tel:') === 0) continue; for (var j=0;j<pats.length;j++){ if (low.indexOf(pats[j]) !== -1) return all[i]; } } return ''; } return pick(['/contact','contact-us','contactus']) || pick(['/book','/booking','/appointment','/schedul','request-appointment']) || pick(['/forms','patient-form','new-patient','intake']) || ''; })() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Normalize Website Text",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1536,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "youtube_handle",
+              "type": "string",
+              "value": "={{ (($json.website_text || '').match(/youtube\\.com\\/(channel\\/[\\w-]+|@[\\w-]+|c\\/[\\w-]+|user\\/[\\w-]+)/i) || [])[1] || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Find YouTube Link in Text",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3376,
+        160
+      ],
+      "notes": "Reuses the website text already scraped above, no new API call, matches the framework's free-first rule."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.youtube_handle}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Channel Link Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3648,
+        160
+      ],
+      "notes": "True = a youtube.com link was sitting in the website text or footer."
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/channels",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet,statistics"
+            },
+            {
+              "name": "forHandle",
+              "value": "={{$json.youtube_handle.replace(/^(channel\\/|c\\/|user\\/)/,'').replace(/^@/,'')}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Get Channel by Handle",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3936,
+        -64
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput",
+      "notes": "CREDENTIAL: select or create \"YouTube Data API Key\" here, left blank on purpose, n8n's API auto-attaches an unrelated existing credential of the same type if one is provided by name only."
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet"
+            },
+            {
+              "name": "type",
+              "value": "channel"
+            },
+            {
+              "name": "maxResults",
+              "value": "1"
+            },
+            {
+              "name": "q",
+              "value": "={{ $('Normalize Reviews').item.json.business_name + \" \" + ($('Normalize Reviews').item.json.city || \"\").split(\",\")[0] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Search YouTube by Business Name",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3936,
+        384
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput",
+      "notes": "Fallback only, runs when no link was found in the scraped text. CREDENTIAL: select or create \"YouTube Data API Key\" here, left blank on purpose, n8n's API auto-attaches an unrelated existing credential of the same type if one is provided by name only."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.items && $json.items.length > 0}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Channel Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4208,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/channels",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet,statistics"
+            },
+            {
+              "name": "id",
+              "value": "={{$json.items[0].snippet.channelId || $json.items[0].id.channelId}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Get Channel Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4496,
+        384
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput",
+      "notes": "CREDENTIAL: select or create \"YouTube Data API Key\" here, left blank on purpose, n8n's API auto-attaches an unrelated existing credential of the same type if one is provided by name only."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "youtube_channel_url",
+              "type": "string",
+              "value": "={{ ($json.items && $json.items[0] && $json.items[0].snippet) ? ('https://www.youtube.com/channel/' + $json.items[0].id) : '' }}"
+            },
+            {
+              "id": "a1",
+              "name": "youtube_subscribers",
+              "type": "number",
+              "value": "={{ ($json.items && $json.items[0] && $json.items[0].statistics) ? Number($json.items[0].statistics.subscriberCount) : 0 }}"
+            },
+            {
+              "id": "a2",
+              "name": "youtube_views",
+              "type": "number",
+              "value": "={{ ($json.items && $json.items[0] && $json.items[0].statistics) ? Number($json.items[0].statistics.viewCount) : 0 }}"
+            },
+            {
+              "id": "a3",
+              "name": "youtube_video_count",
+              "type": "number",
+              "value": "={{ ($json.items && $json.items[0] && $json.items[0].statistics) ? Number($json.items[0].statistics.videoCount || 0) : 0 }}"
+            },
+            {
+              "id": "a4",
+              "name": "youtube_avg_views",
+              "type": "number",
+              "value": "={{ ($json.items && $json.items[0] && $json.items[0].statistics && Number($json.items[0].statistics.videoCount || 0) > 0) ? Math.round(Number($json.items[0].statistics.viewCount || 0) / Number($json.items[0].statistics.videoCount)) : 0 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Normalize YouTube Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        4768,
+        160
+      ],
+      "notes": "Fed by whichever of the two lookup paths ran, link-based (high confidence) or name-search (best-effort). If neither found a channel, subscriber/view fields stay 0, that is expected, not an error."
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash",
+        "options": {}
+      },
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        5440,
+        336
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 20000,
+      "notes": "PRIMARY and, as of 16 Aug, the ONLY model in use - the Groq fallback is parked (see its note).\n\nRetries restored to 3x20s because there is no longer a fallback to catch a failure. Gemini free-tier 503s are routine here (runs 174, 176, 181, 186).\n\nHARD LIMIT: the free tier allows 20 calls per day. That is the real ceiling on this workflow, not speed. 'Limit Leads This Run' is capped to protect it.\n\nCREDENTIAL: \"Google Gemini API\"."
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\n    \"pipeline_bottleneck\",\n    \"detected_problem\",\n    \"evidence_quote\",\n    \"recommended_offer\",\n    \"problem_alignment_score\",\n    \"evidence_type\",\n    \"all_opportunities\",\n    \"owner_name\",\n    \"owner_name_confidence\"\n  ],\n  \"properties\": {\n    \"pipeline_bottleneck\": {\n      \"type\": \"string\",\n      \"description\": \"Two or three sentences answering: if 500 new customers contacted this business tomorrow, which step breaks first and what does that cost them. Write it so a salesperson could read it aloud on a call. Empty string only if the business shows no bottleneck at all.\"\n    },\n    \"detected_problem\": {\n      \"type\": \"string\",\n      \"description\": \"The single highest-value fixable problem, stated specifically. Empty string if none found.\"\n    },\n    \"evidence_quote\": {\n      \"type\": \"string\",\n      \"description\": \"An exact quote from a review or the website, or a plainly stated structural observation. Never fabricated. Empty string if none found.\"\n    },\n    \"recommended_offer\": {\n      \"type\": \"string\",\n      \"description\": \"Exactly one offer from the menu that clears the primary problem. Empty string if no problem found.\"\n    },\n    \"problem_alignment_score\": {\n      \"type\": \"number\",\n      \"description\": \"0 to 5. How well the evidence supports the primary recommendation. 5 is counted or directly visible proof, 3 is a reasonable inference, 0 is nothing found.\"\n    },\n    \"evidence_type\": {\n      \"type\": \"string\",\n      \"description\": \"Exactly one of: Proven, Likely. Use Proven only when the evidence is counted or directly visible. Empty string if no problem found.\"\n    },\n    \"all_opportunities\": {\n      \"type\": \"string\",\n      \"description\": \"EVERY automation opportunity you can find, not only the primary one, one per line. Format each line exactly as: OFFER NAME | Proven or Likely | the specific evidence in one short sentence. List them strongest first. Most businesses have two or three. Empty string only if there are genuinely none.\"\n    },\n    \"owner_name\": {\n      \"type\": \"string\",\n      \"description\": \"Owner or founder name, only if visibly signed on a review reply or stated on an About or Team page. Never guessed. Empty string if not found.\"\n    },\n    \"owner_name_confidence\": {\n      \"type\": \"number\",\n      \"description\": \"0 to 1 confidence that owner_name is correct. 0 if owner_name is empty.\"\n    }\n  }\n}"
+      },
+      "name": "Problem and Score Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        5648,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are auditing ONE business. Here is everything known about it.\n\nBUSINESS\nName: {{$('Normalize Reviews').item.json.business_name}}\nType: {{$('Normalize Reviews').item.json.category}}\nLocation: {{$('Normalize Reviews').item.json.city}}\nGoogle rating: {{$('Normalize Reviews').item.json.rating}} from {{$('Normalize Reviews').item.json.review_count}} total reviews\n\nDIGITAL FOOTPRINT (measured directly from their site and channel - these are facts, not guesses)\n{{$('Assess Digital Footprint').item.json.footprint_summary}}\n\nREVIEW RESPONSE BEHAVIOUR (counted)\nReviews pulled in this batch: {{$('Normalize Reviews').item.json.reviews_fetched_count}}\nNegative reviews, 3 stars or below: {{$('Normalize Reviews').item.json.negative_review_count}}\nNegative reviews the owner never replied to: {{$('Normalize Reviews').item.json.unanswered_negative_count}}\nOwner reply rate across this batch: {{$('Normalize Reviews').item.json.owner_reply_rate}}%\n\nNEGATIVE REVIEWS ONLY (star rating, whether the owner replied, then the review)\n{{$('Normalize Reviews').item.json.negative_reviews_text}}\n\nALL RECENT REVIEWS (newest first)\n{{$('Normalize Reviews').item.json.reviews_text}}\n\nWEBSITE BODY TEXT (often only a fragment of the page - absence here is not proof of absence)\n{{$('Consolidate Website Text').item.json.website_text}}\n\nEVERY LINK ON THE WEBSITE\n{{$('Consolidate Website Text').item.json.website_links}}\n\nProduce the required structured JSON output.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are an operations auditor for an automation agency. You examine the public footprint of exactly ONE local business and report EVERY automation opportunity you can find in it, ranked. You are given data for one business only - never mix in evidence from another business.\n\nYOUR CORE QUESTION - THE 500-CLIENT STRESS TEST:\n\"If 500 new customers contacted this business tomorrow morning, which step of their pipeline would break first?\"\nAnswer that in pipeline_bottleneck, in two or three plain sentences a salesperson could read aloud on a call. Name the step that breaks and what it costs them.\n\nTHINK IN PIPES, NOT COMPLAINTS. A business is a pipe carrying cash flow. Most owners try to grow by pouring more water in - more ads, more staff - while the pipe stays clogged downstream by slow responses, manual paperwork and forgotten follow-ups. Your job is to find the clogs. A business with flawless five-star reviews can still be badly clogged, and that is a real, sellable opportunity. NEVER conclude there is no opportunity merely because customers are happy.\n\nREPORT EVERYTHING, NOT JUST THE TOP ONE. Most businesses have two or three genuine opportunities. all_opportunities must list every one you can support, strongest first, one per line, formatted exactly as:\nOFFER NAME | Proven or Likely | the specific evidence in one short sentence\nThen pick the strongest as the primary for detected_problem, evidence_quote and recommended_offer. A single-line all_opportunities on a business with an obviously thin footprint means you have not looked hard enough.\n\nWHAT MAKES A TASK WORTH AUTOMATING - all three should plausibly hold: it happens daily or weekly, information is copied by hand between forms and software, and delay costs money.\n\nTHE OFFER MENU. Use these exact names:\n- AI receptionist / WhatsApp bot - unanswered calls, phone as the only real intake route, or nothing capturing enquiries after hours\n- Auto-reply and lead capture - enquiries land in a human inbox with no instant acknowledgement, or a form or lead magnet exists with no visible automated response\n- Review response automation - reviews unanswered, especially negative ones, or a low owner reply rate\n- FAQ bot - the same question recurs across reviews, or the site buries basic answers\n- Booking automation - no real self-service booking. TRUST THE MEASURED FOOTPRINT LINE, not your reading of the body text. If booking type is 'Books online instantly', booking EXISTS - never claim it is missing. If it is 'Form, answered by hand', the clog is the manual handling, so recommend AI receptionist or Auto-reply and lead capture instead, not booking automation.\n- Scheduling automation - customers report long waits, delays or scheduling friction\n- Content system - a channel that is Abandoned, Barely used, showing Few views per video, or Buying views with no real audience. A high view count against a tiny subscriber count means they are renting attention every month instead of accumulating it. A dormant channel means they already invested in video and abandoned it.\n- Intake and document automation - downloadable or printable client forms, PDF intake packets, or a separate registration portal all mean staff are re-keying data by hand\n- Follow-up and nurture sequence - a lead magnet, blog or heavy social presence generates interest but no email capture exists to hold it\n- Database reactivation - a long-established business with a large past-customer base and no visible recall, reminder or win-back system\n- Multi-location routing - several locations or phone numbers with no central intake, so enquiries depend on the customer picking the right branch\n\nEVIDENCED VERSUS INFERRED - BE HONEST. Set evidence_type to Proven only when the evidence is counted or directly visible in the footprint or a quote. Otherwise Likely. Score problem_alignment_score: 5 proven by counted or visible evidence, 4 strongly implied by the footprint, 3 a reasonable auditor's inference, 1 to 2 speculative, 0 nothing found. Never invent a fact to raise a score.\n\nCALIBRATION - THIS MATTERS, AND IT HAS BEEN WRONG BEFORE. In past runs, a business that books customers online instantly, with a high owner reply rate and no meaningful complaints, still scored a 5 because one isolated gap was technically findable, such as a single downloadable form on an otherwise well-systemised site. That is miscalibration, not evidence. Award 5 ONLY when the business's overall footprint is thin or actively broken, not when you found one isolated gap on an otherwise strong footprint. A business whose booking type is 'Books online instantly', with an 80%+ review reply rate and no unanswered negative reviews, should score 2 or lower even if some minor automatable task exists, because the pipe is not actually clogged. Award 4 only when the measured footprint makes a real, costly problem hard to explain any other way. Most real businesses land at 3 or below. Before finalizing, ask yourself: would a strong business's minor imperfection and a genuinely struggling business's real problem get the same score from me right now? If yes, you are not discriminating - lower the strong business's score. If every business in a batch scores 4 or 5, re-read the data and mark at least half of them down. NEVER state how long a business has operated unless the measured footprint gives a years-established figure above zero; when it says the site does not state it, say nothing at all about their age.\n\nCLINICAL, ETHICAL AND PRICING COMPLAINTS: complaints about misdiagnosis, unnecessary treatment, upselling, overcharging, rude staff or poor clinical care are NOT fixable by automation. Never recommend an offer that claims to fix them. HOWEVER, if such complaints sit publicly UNANSWERED, that is strong evidence for Review response automation, because the fixable problem is the silence, not the complaint. Describe it as unanswered public criticism damaging their reputation, and never imply the automation addresses the underlying clinical issue.\n\nJUDGE BY MEANING, NOT KEYWORDS. \"I rang three times and gave up\", \"could never get hold of anyone\" and \"the phone just rings out\" are one signal despite sharing no words. Infer the operational failure underneath what the customer describes, including failures the business has not noticed itself. That inference is the entire point of this audit.\n\nevidence_quote goes straight in front of a paying client, so it must read as something a person wrote. Use either an exact quote from a review or the website, or a structural observation written as a complete plain sentence - for example: their site links to downloadable patient forms and a separate registration portal, so someone is re-typing that data by hand. NEVER paste a line from the measured footprint block verbatim. Strings like \"Booking on the site: None found\" or \"Live chat widget: NO\" are internal machine output and must never appear in this field. Never fabricate a quote.\n\nOnly if the business genuinely shows no automatable clog anywhere should you set the problem fields and all_opportunities to empty strings with problem_alignment_score 0. That should be rare and it is a legitimate answer - some businesses are already well systemised.\n\nowner_name: only extract if visibly signed on a review reply or stated on an About or Team page. Otherwise empty string and confidence 0. Never guess from the business name.\n\nRespond only with the required JSON output."
+        }
+      },
+      "name": "Find Problem and Score",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        5552,
+        16
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 45000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.output && $json.output.owner_name_confidence !== undefined}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "AI Call OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        5984,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "status",
+              "type": "string",
+              "value": "={{ /too many requests|rate limit|quota|429|exhausted|overloaded|unavailable/i.test(String($json.error || '')) ? 'Waiting for analysis' : 'Analysis error' }}"
+            },
+            {
+              "id": "a1",
+              "name": "detected_problem",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "a2",
+              "name": "evidence_quote",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "a3",
+              "name": "recommended_offer",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "a4",
+              "name": "problem_alignment_score",
+              "type": "number",
+              "value": 0
+            },
+            {
+              "id": "a5",
+              "name": "data_completeness_score",
+              "type": "number",
+              "value": 0
+            },
+            {
+              "id": "a6",
+              "name": "priority_score",
+              "type": "number",
+              "value": 0
+            },
+            {
+              "id": "a7",
+              "name": "priority_tier",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "a8",
+              "name": "owner_name",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "a11",
+              "name": "pipeline_bottleneck",
+              "type": "string",
+              "value": "={{ /too many requests|rate limit|quota|429|exhausted|overloaded|unavailable/i.test(String($json.error || '')) ? 'The AI quota was exhausted on this run, so this lead was left queued as Waiting for analysis and will be picked up automatically on the next run. Every measured fact on this row is still valid.' : 'AI analysis failed on this run for a reason other than quota. The measured facts on this row are still valid. Re-run to get the written analysis.' }}"
+            },
+            {
+              "id": "a12",
+              "name": "evidence_type",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "a13",
+              "name": "all_opportunities",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "a14",
+              "name": "booking_type",
+              "type": "string",
+              "value": "={{ $('Assess Digital Footprint').item.json.booking_type }}"
+            },
+            {
+              "id": "a15",
+              "name": "has_downloadable_forms",
+              "type": "boolean",
+              "value": "={{ $('Assess Digital Footprint').item.json.has_downloadable_forms }}"
+            },
+            {
+              "id": "a16",
+              "name": "has_email_capture",
+              "type": "boolean",
+              "value": "={{ $('Assess Digital Footprint').item.json.has_email_capture }}"
+            },
+            {
+              "id": "a17",
+              "name": "has_lead_magnet",
+              "type": "boolean",
+              "value": "={{ $('Assess Digital Footprint').item.json.has_lead_magnet }}"
+            },
+            {
+              "id": "a18",
+              "name": "has_live_chat",
+              "type": "boolean",
+              "value": "={{ $('Assess Digital Footprint').item.json.has_live_chat }}"
+            },
+            {
+              "id": "a19",
+              "name": "location_count",
+              "type": "number",
+              "value": "={{ $('Assess Digital Footprint').item.json.location_count }}"
+            },
+            {
+              "id": "a20",
+              "name": "years_established",
+              "type": "number",
+              "value": "={{ $('Assess Digital Footprint').item.json.years_established }}"
+            },
+            {
+              "id": "a21",
+              "name": "youtube_verdict",
+              "type": "string",
+              "value": "={{ $('Assess Digital Footprint').item.json.youtube_verdict }}"
+            },
+            {
+              "id": "a22",
+              "name": "youtube_last_upload",
+              "type": "string",
+              "value": "={{ $('Assess Digital Footprint').item.json.youtube_last_upload }}"
+            },
+            {
+              "id": "a23",
+              "name": "youtube_avg_views",
+              "type": "number",
+              "value": "={{ $('Assess Digital Footprint').item.json.youtube_avg_views }}"
+            },
+            {
+              "id": "a24",
+              "name": "owner_reply_rate",
+              "type": "number",
+              "value": "={{ $('Normalize Reviews').item.json.owner_reply_rate }}"
+            },
+            {
+              "id": "a25",
+              "name": "unanswered_negatives",
+              "type": "number",
+              "value": "={{ $('Normalize Reviews').item.json.unanswered_negative_count }}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Mark Analysis Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        6448,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "detected_problem",
+              "type": "string",
+              "value": "={{ $('Find Problem and Score').item.json.output.detected_problem || '' }}"
+            },
+            {
+              "id": "a1",
+              "name": "evidence_quote",
+              "type": "string",
+              "value": "={{ $('Find Problem and Score').item.json.output.evidence_quote || '' }}"
+            },
+            {
+              "id": "a2",
+              "name": "recommended_offer",
+              "type": "string",
+              "value": "={{ $('Find Problem and Score').item.json.output.recommended_offer || '' }}"
+            },
+            {
+              "id": "a3",
+              "name": "owner_name",
+              "type": "string",
+              "value": "={{ $('Find Problem and Score').item.json.output.owner_name || '' }}"
+            },
+            {
+              "id": "a4",
+              "name": "problem_alignment_score",
+              "type": "number",
+              "value": "={{ $('Find Problem and Score').item.json.output.problem_alignment_score || 0 }}"
+            },
+            {
+              "id": "a5",
+              "name": "data_completeness_score",
+              "type": "number",
+              "value": "={{ (($('Normalize Reviews').item.json.review_count || 0) >= 50 ? 3 : ($('Normalize Reviews').item.json.review_count || 0) >= 20 ? 2 : 1) }}"
+            },
+            {
+              "id": "a6",
+              "name": "priority_score",
+              "type": "number",
+              "value": "={{ ($('Find Problem and Score').item.json.output.problem_alignment_score || 0) + (($('Normalize Reviews').item.json.review_count || 0) >= 50 ? 3 : ($('Normalize Reviews').item.json.review_count || 0) >= 20 ? 2 : 1) }}"
+            },
+            {
+              "id": "a7",
+              "name": "priority_tier",
+              "type": "string",
+              "value": "={{ (function(){ var o = $('Find Problem and Score').item.json.output; var score = Number(o.problem_alignment_score || 0); var reviews = Number($('Normalize Reviews').item.json.review_count || 0); var fp = $('Assess Digital Footprint').item.json; if (!o.detected_problem || reviews < 10) return 'Not Now'; var wellRun = (fp.booking_type === 'Books online instantly') && Number($('Normalize Reviews').item.json.unanswered_negative_count || 0) === 0; if (wellRun) return score >= 5 ? 'Medium' : 'Not Now'; if (score >= 4) return 'High'; if (score >= 3) return 'Medium'; return 'Not Now'; })() }}"
+            },
+            {
+              "id": "a8",
+              "name": "status",
+              "type": "string",
+              "value": "Analysed"
+            },
+            {
+              "id": "a9",
+              "name": "pipeline_bottleneck",
+              "type": "string",
+              "value": "={{ $('Find Problem and Score').item.json.output.pipeline_bottleneck || '' }}"
+            },
+            {
+              "id": "a10",
+              "name": "evidence_type",
+              "type": "string",
+              "value": "={{ $('Find Problem and Score').item.json.output.evidence_type || '' }}"
+            },
+            {
+              "id": "a11",
+              "name": "all_opportunities",
+              "type": "string",
+              "value": "={{ $('Find Problem and Score').item.json.output.all_opportunities || '' }}"
+            },
+            {
+              "id": "a12",
+              "name": "booking_type",
+              "type": "string",
+              "value": "={{ $('Assess Digital Footprint').item.json.booking_type }}"
+            },
+            {
+              "id": "a13",
+              "name": "has_downloadable_forms",
+              "type": "boolean",
+              "value": "={{ $('Assess Digital Footprint').item.json.has_downloadable_forms }}"
+            },
+            {
+              "id": "a14",
+              "name": "has_email_capture",
+              "type": "boolean",
+              "value": "={{ $('Assess Digital Footprint').item.json.has_email_capture }}"
+            },
+            {
+              "id": "a15",
+              "name": "has_lead_magnet",
+              "type": "boolean",
+              "value": "={{ $('Assess Digital Footprint').item.json.has_lead_magnet }}"
+            },
+            {
+              "id": "a16",
+              "name": "has_live_chat",
+              "type": "boolean",
+              "value": "={{ $('Assess Digital Footprint').item.json.has_live_chat }}"
+            },
+            {
+              "id": "a17",
+              "name": "location_count",
+              "type": "number",
+              "value": "={{ $('Assess Digital Footprint').item.json.location_count }}"
+            },
+            {
+              "id": "a18",
+              "name": "years_established",
+              "type": "number",
+              "value": "={{ $('Assess Digital Footprint').item.json.years_established }}"
+            },
+            {
+              "id": "a19",
+              "name": "youtube_verdict",
+              "type": "string",
+              "value": "={{ $('Assess Digital Footprint').item.json.youtube_verdict }}"
+            },
+            {
+              "id": "a20",
+              "name": "youtube_last_upload",
+              "type": "string",
+              "value": "={{ $('Assess Digital Footprint').item.json.youtube_last_upload }}"
+            },
+            {
+              "id": "a21",
+              "name": "youtube_avg_views",
+              "type": "number",
+              "value": "={{ $('Assess Digital Footprint').item.json.youtube_avg_views }}"
+            },
+            {
+              "id": "a22",
+              "name": "owner_reply_rate",
+              "type": "number",
+              "value": "={{ $('Normalize Reviews').item.json.owner_reply_rate }}"
+            },
+            {
+              "id": "a23",
+              "name": "unanswered_negatives",
+              "type": "number",
+              "value": "={{ $('Normalize Reviews').item.json.unanswered_negative_count }}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Compute Priority",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        7568,
+        144
+      ],
+      "notes": "Three tiers. High = solid evidence (score 4+). Medium = a real but weaker finding (score 3). Not Ready = weak evidence, or under 10 reviews.\n\nOverride: if OUR OWN measured facts say the business is already well run (real self-service booking AND zero unanswered negative reviews), it is capped at Medium and usually Not Ready, no matter how confident the AI is. This exists because The Dental Group, which is genuinely well systemised, kept scoring High.\n\nOwner reply rate is deliberately NOT used here: it swings between runs (16% then 0% for the same business on 13 Aug) because we only see the newest ~50 reviews, so it must never drive the tier."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": []
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Prepare Tab 3 Update",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        7856,
+        208
+      ],
+      "notes": "Pure pass-through convergence point for the success and failure branches. Everything after this reads from THIS node by name, never bare $json, the two Airtable writes further down each reshape $json into an Airtable-record shape, so bare $json would lose these fields after either write."
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX",
+          "cachedResultName": "Lead Gen $0 Framework"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX",
+          "cachedResultName": "3 - Analysed"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Normalize Reviews').item.json.record_id }}",
+            "Status": "={{ $('Prepare Tab 3 Update').item.json.status }}",
+            "What Breaks First": "={{ $('Prepare Tab 3 Update').item.json.pipeline_bottleneck }}",
+            "All Opportunities": "={{ $('Prepare Tab 3 Update').item.json.all_opportunities }}",
+            "Detected Problem": "={{ $('Prepare Tab 3 Update').item.json.detected_problem }}",
+            "Evidence Quote": "={{ $('Prepare Tab 3 Update').item.json.evidence_quote }}",
+            "Evidence Type": "={{ $('Prepare Tab 3 Update').item.json.evidence_type }}",
+            "What To Sell Them": "={{ $('Prepare Tab 3 Update').item.json.recommended_offer }}",
+            "Email": "={{ $('Get Pending Records').item.json.fields['Email'] || $('Assess Digital Footprint').item.json.best_email }}",
+            "Found Emails": "={{ $('Assess Digital Footprint').item.json.found_emails || ($('Assess Digital Footprint').item.json.email_guesses ? 'UNVERIFIED GUESSES - confirm one works before sending:\\n' + $('Assess Digital Footprint').item.json.email_guesses : '') }}",
+            "Email Source": "={{ (function(){ var existing = String($('Get Pending Records').item.json.fields['Email'] || '').trim(); var scraped = String($('Assess Digital Footprint').item.json.best_email || '').trim(); var found = String($('Assess Digital Footprint').item.json.found_emails || ''); var prior = String($('Get Pending Records').item.json.fields['Email Source'] || ''); if (!existing) return scraped ? 'Found on their site' : 'None found'; if (prior === 'Found on their site') return 'Found on their site'; if (found.toLowerCase().split('\\n').indexOf(existing.toLowerCase()) !== -1) return 'Found on their site'; return 'You added it'; })() }}",
+            "Booking Type": "={{ $('Prepare Tab 3 Update').item.json.booking_type }}",
+            "Has Downloadable Forms": "={{ $('Prepare Tab 3 Update').item.json.has_downloadable_forms }}",
+            "They Collect Emails": "={{ $('Prepare Tab 3 Update').item.json.has_email_capture }}",
+            "Has Lead Magnet": "={{ $('Prepare Tab 3 Update').item.json.has_lead_magnet }}",
+            "Has Live Chat": "={{ $('Prepare Tab 3 Update').item.json.has_live_chat }}",
+            "Location Count": "={{ $('Prepare Tab 3 Update').item.json.location_count }}",
+            "Years Established": "={{ $('Prepare Tab 3 Update').item.json.years_established || null }}",
+            "% Reviews They Answer": "={{ $('Prepare Tab 3 Update').item.json.owner_reply_rate }}",
+            "Ignored Bad Reviews": "={{ $('Prepare Tab 3 Update').item.json.unanswered_negatives }}",
+            "YouTube Verdict": "={{ $('Prepare Tab 3 Update').item.json.youtube_verdict }}",
+            "YouTube Last Upload": "={{ $('Prepare Tab 3 Update').item.json.youtube_last_upload }}",
+            "YouTube Avg Views": "={{ $('Prepare Tab 3 Update').item.json.youtube_avg_views }}",
+            "YouTube Channel URL": "={{ $('Normalize YouTube Data').item.json.youtube_channel_url }}",
+            "YouTube Subscribers": "={{ $('Normalize YouTube Data').item.json.youtube_subscribers }}",
+            "YouTube Views": "={{ $('Normalize YouTube Data').item.json.youtube_views }}",
+            "Evidence Strength": "={{ $('Prepare Tab 3 Update').item.json.problem_alignment_score }}",
+            "Data Completeness Score": "={{ $('Prepare Tab 3 Update').item.json.data_completeness_score }}",
+            "Priority Score": "={{ $('Prepare Tab 3 Update').item.json.priority_score }}",
+            "Priority Tier": "={{ $('Prepare Tab 3 Update').item.json.priority_tier }}",
+            "Owner Name": "={{ $('Prepare Tab 3 Update').item.json.owner_name }}",
+            "Recent Reviews Text": "={{ 'SUMMARY: owner replies to ' + $('Normalize Reviews').item.json.owner_reply_rate + '% of reviews | ' + $('Normalize Reviews').item.json.negative_review_count + ' negative review(s) in batch, ' + $('Normalize Reviews').item.json.unanswered_negative_count + ' left unanswered\\n\\nNEGATIVE REVIEWS:\\n' + $('Normalize Reviews').item.json.negative_reviews_text }}",
+            "Website Scrape Text": "={{ $('Consolidate Website Text').item.json.website_text }}",
+            "Date Analysed": "={{$now.toISO()}}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true
+            },
+            {
+              "id": "Business Name",
+              "displayName": "Business Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Waiting for analysis",
+                  "value": "Waiting for analysis"
+                },
+                {
+                  "name": "Analysed",
+                  "value": "Analysed"
+                },
+                {
+                  "name": "Analysis error",
+                  "value": "Analysis error"
+                },
+                {
+                  "name": "Email drafted",
+                  "value": "Email drafted"
+                },
+                {
+                  "name": "Draft error",
+                  "value": "Draft error"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "City",
+              "displayName": "City",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Place ID",
+              "displayName": "Place ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Rating",
+              "displayName": "Rating",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Review Count",
+              "displayName": "Review Count",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Recent Reviews Text",
+              "displayName": "Recent Reviews Text",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Website Scrape Text",
+              "displayName": "Website Scrape Text",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "YouTube Channel URL",
+              "displayName": "YouTube Channel URL",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "YouTube Subscribers",
+              "displayName": "YouTube Subscribers",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "YouTube Views",
+              "displayName": "YouTube Views",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Owner YouTube Channel URL",
+              "displayName": "Owner YouTube Channel URL",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Owner YouTube Subscribers",
+              "displayName": "Owner YouTube Subscribers",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Detected Problem",
+              "displayName": "Detected Problem",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Evidence Quote",
+              "displayName": "Evidence Quote",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Recommended System",
+              "displayName": "Recommended System",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Problem Alignment Score",
+              "displayName": "Problem Alignment Score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Data Completeness Score",
+              "displayName": "Data Completeness Score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Priority Score",
+              "displayName": "Priority Score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Priority Tier",
+              "displayName": "Priority Tier",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "High",
+                  "value": "High"
+                },
+                {
+                  "name": "Medium",
+                  "value": "Medium"
+                },
+                {
+                  "name": "Not Now",
+                  "value": "Not Now"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Owner Name",
+              "displayName": "Owner Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Date Analysed",
+              "displayName": "Date Analysed",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "name": "Update Tab 3 Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        8128,
+        208
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "CREDENTIAL: select or create \"Airtable Personal Access Token (Lead Gen $0 Framework)\" here, left blank on purpose, n8n's API auto-attaches an unrelated existing credential of the same type if one is provided by name only."
+    },
+    {
+      "parameters": {
+        "amount": 0.2
+      },
+      "name": "Wait 200ms (a)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        8416,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Prepare Tab 3 Update').item.json.priority_tier }}",
+              "rightValue": "Not Now",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Priority Tier?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        8688,
+        208
+      ],
+      "notes": "Reads back from \"Prepare Tab 3 Update\", not $json, the Airtable update just before this reshapes the item."
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX",
+          "cachedResultName": "Lead Gen $0 Framework"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX",
+          "cachedResultName": "1 - Not Ready"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Business Name": "={{ $('Normalize Reviews').item.json.business_name }}",
+            "Website": "={{ $('Normalize Reviews').item.json.website }}",
+            "Place ID": "={{ $('Normalize Reviews').item.json.place_id }}",
+            "Review Count": "={{ $('Normalize Reviews').item.json.review_count }}",
+            "Detected Problem": "={{ $('Prepare Tab 3 Update').item.json.detected_problem }}",
+            "Evidence Quote": "={{ $('Prepare Tab 3 Update').item.json.evidence_quote }}",
+            "Date Added": "={{$now.toISO()}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Business Name",
+              "displayName": "Business Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Place ID",
+              "displayName": "Place ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Review Count",
+              "displayName": "Review Count",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Detected Problem",
+              "displayName": "Detected Problem",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Evidence Quote",
+              "displayName": "Evidence Quote",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Date Added",
+              "displayName": "Date Added",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "name": "Save to Tab 1 - Not Now",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        8976,
+        -16
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Base + table pre-filled (tab #1 Not Ready), just pick the credential. Not rejected, better leads for the monthly recheck. CREDENTIAL: select or create \"Airtable Personal Access Token (Lead Gen $0 Framework)\" here, left blank on purpose, n8n's API auto-attaches an unrelated existing credential of the same type if one is provided by name only."
+    },
+    {
+      "parameters": {
+        "amount": 0.2
+      },
+      "name": "Wait 200ms (b)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        9248,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/playlistItems",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet"
+            },
+            {
+              "name": "maxResults",
+              "value": "1"
+            },
+            {
+              "name": "playlistId",
+              "value": "={{ $json.youtube_channel_url ? 'UU' + String($json.youtube_channel_url).split('/').pop().substring(2) : 'UUnone' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Get Latest Upload",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5216,
+        16
+      ],
+      "retryOnFail": false,
+      "onError": "continueRegularOutput",
+      "notes": "Finds when the channel last posted, which is what separates a dormant channel from an active one. A channel's uploads playlist is always its channel ID with the UC prefix swapped for UU, so this needs no extra lookup call. Fails harmlessly when the business has no channel."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deterministic footprint checks. No AI guessing - these are countable facts\n// read off the site's own links and copy, so they are identical every run.\nconst web = $('Consolidate Website Text').first().json;\nconst yt  = $('Normalize YouTube Data').first().json;\n\nlet lastUpload = '';\ntry {\n  const up = $('Get Latest Upload').first().json;\n  if (up && up.items && up.items[0] && up.items[0].snippet) {\n    lastUpload = String(up.items[0].snippet.publishedAt || '').substring(0, 10);\n  }\n} catch (e) { lastUpload = ''; }\n\nconst rawLinks = web.website_links || '';\nconst text  = (web.website_text  || '').toLowerCase();\nconst links = rawLinks.toLowerCase();\nconst all   = text + '\\n' + links;\n\n// ---- booking ----\n// Vendor lists are grouped by vertical so this is not dental-only. Add the\n// booking software for any new vertical here before running a batch on it -\n// an unrecognised vendor silently becomes 'Has booking page, unconfirmed'.\n//\n// UK PROPERTY + UK AESTHETICS added 19 Aug 2026 - the operator's primary\n// target verticals. UK SPELLING MATTERS: British sites say 'enquiry', never\n// 'inquiry', and the US-only patterns missed them completely.\nconst schedulers = [\n  // UK estate agency / lettings - CRM, viewing booking, tenancy tooling\n  'reapit','alto.zoopla','jupix','dezrez','street.co.uk','acquaint','rexsoftware','vebra',\n  'expertagent','agentos','gnomen','apex27','letmc','openview','propertyhive','yourkeys',\n  'viewber','goodlord','fixflo','canopy.rent','homeflow','starberry',\n  // UK aesthetics / med spa / private clinic\n  'pabau','phorest','treatwell','gettimely','cliniko','clinicsoftware','semble','heydoc',\n  'writeupp','clinicminds','janeapp','zenoti','ovatu','kitomba','shortcuts','consentz',\n  'clinicea','facesconsent','aestheticnursesoftware','mangomint','blvd.co',\n  // UK dental\n  'dentally','softwareofexcellence','carestream','r4dental','zesty.co.uk','dentr',\n  'systemsfordentists',\n  // UK trades / home improvement\n  'payaca','powerednow','tradify','commusoft','simprogroup','klipboard','okappy',\n  'yourtradebase','bigchange','joblogic',\n  // dental / medical (US-origin, still turn up on UK sites)\n  'appointnow','patientconnect','zocdoc','nexhealth','denticon','modento','localmed','dentrix',\n  'yapi','revenuewell','patientpop','sesame','doctible','carestack','nextpatient','luma health',\n  // home services / trades - HVAC, plumbing, electrical, roofing, cleaning\n  'servicetitan','housecallpro','getjobber','jobber.com','workiz','fieldedge','servicem8',\n  'jobnimbus','servicefusion','thumbtack.com/book','setmore',\n  // salon / spa / wellness\n  'mindbody','vagaro','booksy','schedulicity','fresha','glossgenius','squareup.com/appointments',\n  // generic, any vertical\n  'flexbooker','calendly','acuityscheduling','simplybook','youcanbook.me','cal.com','tidycal',\n  'chilipiper','hubspot.com/meetings','koalendar','savvycal','10to8','bookwhen','appointedd',\n  'bookinglive','reservio'\n];\nconst hasScheduler  = schedulers.some(s => all.includes(s));\nconst hasBookingPath = ['/book','/booking','/appointment','/schedul','/reserve','/estimate','/quote',\n  '/viewing','/valuation','/appraisal','/enquiry','/enquire','/consultation'].some(p => links.includes(p));\n\n// A recognised vendor name does NOT prove real self-service booking. Several\n// of these are routinely deployed as a request form the business answers by\n// hand - CITIDental runs PatientConnect365 at a /RequestAppointment/ URL.\n// Verified 16 Aug 2026 against the live sites: when the link itself says\n// 'request', that beats the vendor name, so requestish is tested FIRST.\n// Tradeoff accepted: a business running real booking AND a separate request\n// form somewhere reads as 'Form, answered by hand'. Under-claiming is the safe\n// direction - it never puts a false 'they already have booking' on a call.\n//\n// DELIBERATE for UK property: only 'request / arrange / enquire' wording lands\n// here. Plain 'book-a-viewing' and 'book-a-valuation' are left to the booking\n// path check instead. If every estate agent were forced to 'Form, answered by\n// hand' the field would stop discriminating between agents who have automated\n// and agents who have not - which is the entire point of measuring it.\nconst requestPatterns = ['request-an-appointment','appointment-request','request-appointment','requestappointment','request-a-','request-consultation','appointment-inquiry','appointment-enquiry','request-info','free-estimate','request-quote','get-a-quote',\n  'request-a-viewing','viewing-request','arrange-a-viewing','arrange-viewing',\n  'request-a-valuation','valuation-request','free-valuation','book-a-callback',\n  'request-a-callback','callback-request','enquiry-form','make-an-enquiry','consultation-request'];\nconst requestish = requestPatterns.some(p => links.includes(p))\n  || text.includes('request an appointment') || text.includes('request a consultation')\n  || text.includes('request a quote') || text.includes('free estimate')\n  || text.includes('request a viewing') || text.includes('arrange a viewing')\n  || text.includes('request a valuation') || text.includes('arrange a valuation')\n  || text.includes('book a free valuation') || text.includes('make an enquiry')\n  || text.includes('submit an enquiry') || text.includes('request a callback')\n  || text.includes('will get in touch') || text.includes('we will contact you')\n  || text.includes('we will be in touch') || text.includes('a member of our team');\nconst hasTel = links.includes('tel:');\n\nlet bookingType = 'No way to book online';\nif (requestish) bookingType = 'Form, answered by hand';\nelse if (hasScheduler) bookingType = 'Books online instantly';\nelse if (hasBookingPath) bookingType = 'Has booking page, unconfirmed';\nelse if (hasTel) bookingType = 'Phone only';\n\n// ---- paperwork, capture, chat ----\n// UK additions: tenancy and referencing paperwork for lettings agents, consent\n// and medical-history forms for aesthetics clinics. The old list was\n// patient/medical wording only, which is why it read blank outside dentistry.\nconst hasForms        = ['patient-form','patient_form','patientforms','new-patient','newpatient','/forms','#forms','-forms','forms.html','online-forms','intake','registration','.pdf',\n  'tenancy-application','application-form','landlord-form','referencing','right-to-rent',\n  'tenancy-agreement','memorandum-of-sale','consent-form','medical-history','consultation-form','.docx'].some(h => all.includes(h));\n// An 'instant valuation' widget gates its result behind an email address -\n// that IS lead capture, so an agent already running one must not be pitched\n// email capture as if it were missing.\nconst hasEmailCapture = ['newsletter','subscribe','mailchimp','constantcontact','klaviyo','join our list','email list',\n  'property alerts','property-alerts','register for alerts','instant alerts','register with us',\n  'dotdigital','campaign monitor','sendinblue','brevo','mailerlite','activecampaign',\n  'instant-valuation','instant valuation','value my property'].some(h => all.includes(h));\nconst hasLeadMagnet   = ['free report','free guide','free ebook','free e-book','download our','free download','whitepaper','free checklist','free consultation guide','-report/','-report.','/report/','free-guide','/guide/',\n  'landlord guide','sellers guide','seller-guide','buyers guide','buyer-guide','moving guide',\n  'free brochure','price guide','price list','treatment guide','tenant-guide'].some(h => all.includes(h));\nconst hasLiveChat     = ['tawk.to','intercom','drift.com','livechat','podium','birdeye','olark','zendesk','chatwidget','live chat',\n  'yomdel','tidio','crisp.chat','smartsupp','chatra','freshchat','helpcrunch','userlike','jivochat'].some(h => all.includes(h));\n\n// WhatsApp enquiries: a wa.me link means a human is answering messages by hand\n// on somebody's phone. That is the exact job the AI receptionist / WhatsApp bot\n// offer replaces, so it is a buying signal - never a reason to skip them.\nconst hasWhatsApp = ['wa.me/','whatsapp.com/send','api.whatsapp.com','web.whatsapp.com','whatsapp'].some(h => all.includes(h));\n\n// Outsourced call answering or managed live chat. If they already pay Moneypenny\n// or Yomdel they have ALREADY admitted the pain AND already hold budget for it -\n// the strongest qualifying signal on the whole page. Never read this as 'solved'.\nconst answeringServices = ['yomdel','moneypenny','alldayppc','answer4u','face-for-business',\n  'verbalink','callcare','ansaback','officeanswers','bemyreceptionist','virtual receptionist',\n  'answering service','call answering'];\nconst usesAnsweringService = answeringServices.some(s => all.includes(s));\n\n// ---- locations: distinct phone numbers is the most reliable outside proxy ----\n// slice(-10) normalises UK numbers correctly: 020 7123 4567, 02071234567 and\n// +442071234567 all reduce to the same 2071234567.\nconst telMatches = rawLinks.match(/tel:[+0-9()\\-\\s.]+/gi) || [];\nconst distinctTels = Array.from(new Set(telMatches.map(t => t.replace(/[^0-9]/g, '').slice(-10)).filter(Boolean)));\nconst locationCount = distinctTels.length || 1;\n\n// ---- years established ----\n// Read off the FULL page markdown upstream, not the 6000-char excerpt.\n// Truncating first hid \"Boston's Dental Office Since 1998\" and zeroed this field.\nlet yearsEstablished = 0;\nconst foundedYear = Number(web.founded_year || 0);\nconst nowYear = new Date().getFullYear();\nif (foundedYear >= 1900 && foundedYear <= nowYear) yearsEstablished = nowYear - foundedYear;\n\n// ---- emails they publish on their own site ----\n// Free: the scrape is already paid for and mailto links sit right in it.\n// Deliberately NOT passed to the AI - it serves no analytical purpose there.\nconst siteHost = String(($('Normalize Reviews').first().json.website) || '')\n  .replace(/^https?:\\/\\//i, '').replace(/^www\\./i, '').split('/')[0].toLowerCase();\nconst emailJunk = ['example.com','yourdomain','domain.com','sentry','wixpress','godaddy','.png','.jpg','.jpeg','.gif','.svg','.webp','@2x','no-reply','noreply','donotreply'];\nconst rawEmails = (all.match(/[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}/gi) || []).map(e => e.toLowerCase());\nconst foundEmails = Array.from(new Set(rawEmails)).filter(e => !emailJunk.some(j => e.includes(j)));\n// An address on their own domain beats a stray third-party one every time.\nconst sameDomain = siteHost ? foundEmails.filter(e => e.endsWith('@' + siteHost)) : [];\nconst bestEmail = sameDomain[0] || foundEmails[0] || '';\n\n// Roughly half of local businesses publish no address at all - the contact\n// form IS the anti-scraping measure. Verified 16 Aug 2026: 3 of 5 in this\n// batch genuinely have none anywhere on their site. So when nothing is found,\n// generate the standard candidates off their own domain.\n// These are GUESSES. They are deliberately kept OUT of best_email so\n// Workflow 3 never drafts to an unverified address - a bounce damages sender\n// reputation, which is slow and expensive to rebuild. Verify before sending.\n// 'enquiries@' and 'lettings@' are the common UK forms and are listed first.\nlet emailGuesses = '';\nif (!bestEmail && siteHost) {\n  emailGuesses = ['info','enquiries','office','contact','hello','lettings','sales','admin']\n    .map(function(p){ return p + '@' + siteHost; }).join('\\n');\n}\n\n// ---- youtube verdict ----\n// NOTE: aesthetics clinics and salons are Instagram-first, not YouTube-first.\n// A 'No channel found' verdict for those verticals is weak evidence, not proof\n// of a content gap. Treat it accordingly until an Instagram signal is built.\nconst subs = Number(yt.youtube_subscribers || 0);\nconst views = Number(yt.youtube_views || 0);\nconst vids = Number(yt.youtube_video_count || 0);\nconst avg  = Number(yt.youtube_avg_views || 0);\n\nlet dormantYears = 0;\nif (lastUpload) {\n  const d = new Date(lastUpload);\n  if (!isNaN(d.getTime())) dormantYears = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24 * 365);\n}\n\nlet ytVerdict = 'No channel found';\nif (!yt.youtube_channel_url) ytVerdict = 'No channel found';\nelse if (lastUpload && dormantYears >= 1.5) ytVerdict = 'Abandoned';\nelse if (vids > 0 && subs > 0 && (views / subs) > 2000 && avg > 500) ytVerdict = 'Buying views, no real audience';\nelse if (vids > 0 && vids < 5) ytVerdict = 'Barely used';\nelse if (vids > 0 && avg < 200) ytVerdict = 'Few views per video';\nelse if (vids > 0) ytVerdict = 'Active';\n\nconst yn = b => b ? 'YES' : 'NO';\nconst footprintSummary = [\n  'Booking on the site: ' + bookingType,\n  'Downloadable or printable client forms: ' + yn(hasForms),\n  'Email capture or newsletter: ' + yn(hasEmailCapture),\n  'Lead magnet such as a free report or guide: ' + yn(hasLeadMagnet),\n  'Live chat widget: ' + yn(hasLiveChat),\n  'Takes enquiries on WhatsApp, answered by hand: ' + yn(hasWhatsApp),\n  'Pays an outsourced answering service or managed live chat: ' + yn(usesAnsweringService) + (usesAnsweringService ? ' - they already pay humans to cover this, so both budget and pain are proven. Treat as a strong opportunity, NOT as already solved.' : ''),\n  'Distinct phone numbers on the site (proxy for number of locations): ' + locationCount,\n  'Years established: ' + (yearsEstablished ? yearsEstablished + ' years' : 'not stated on the site'),\n  'YouTube: ' + ytVerdict + ' - ' + subs + ' subscribers, ' + views + ' total views, ' + vids + ' videos, ' + avg + ' average views per video' + (lastUpload ? ', last upload ' + lastUpload : ', last upload date unknown')\n].join('\\n');\n\nreturn [{ json: {\n  booking_type: bookingType,\n  has_downloadable_forms: hasForms,\n  has_email_capture: hasEmailCapture,\n  has_lead_magnet: hasLeadMagnet,\n  has_live_chat: hasLiveChat,\n  has_whatsapp: hasWhatsApp,\n  uses_answering_service: usesAnsweringService,\n  location_count: locationCount,\n  years_established: yearsEstablished,\n  youtube_verdict: ytVerdict,\n  youtube_last_upload: lastUpload,\n  youtube_avg_views: avg,\n  found_emails: foundEmails.join('\\n'),\n  email_guesses: emailGuesses,\n  best_email: bestEmail,\n  footprint_summary: footprintSummary\n}}];"
+      },
+      "name": "Assess Digital Footprint",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5392,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4b. Measure the Digital Footprint\n\nThese two steps turn the raw page and channel data into **countable facts** before the AI sees any of it.\n\n**Get Latest Upload** finds when the channel last posted. This is what separates a dormant channel from an active one, identical numbers otherwise, completely different pitch.\n\n**Assess Digital Footprint** reads the site's own links and copy to determine: booking type, downloadable forms, email capture, lead magnet, live chat, location count and years established. This is plain code, not AI, so it gives the same answer every run.\n\nWhy it matters: the AI used to guess these from fragmentary page text and got them wrong. It now receives them as measured facts and is told to trust them over its own reading.",
+        "height": 420,
+        "width": 460,
+        "color": 4
+      },
+      "name": "Section - 4b. Measure the Digital Footprint",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4960,
+        -1280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The Contact/Booking/Forms page is now chosen upstream in\n// 'Normalize Website Text', where the FULL link array is still available.\n// It used to be picked here from an already-truncated 2500-char string,\n// so any contact link past ~45 links was invisible - which is exactly why\n// email discovery kept finding nothing. This node now just passes it along.\nreturn [{ json: {\n  website_text: $json.website_text,\n  website_links: $json.website_links,\n  founded_year: $json.founded_year,\n  secondary_url: $json.secondary_url || ''\n}}];"
+      },
+      "name": "Find Secondary Page to Scrape",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !!$json.secondary_url }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Secondary Page Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2320,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.firecrawl.dev/v1/scrape",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"url\": $json.secondary_url, \"formats\": [\"markdown\", \"links\"], \"onlyMainContent\": false }) }}",
+        "options": {}
+      },
+      "name": "Scrape Secondary Page - Firecrawl",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2560,
+        16
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput",
+      "notes": "Only runs when Find Secondary Page to Scrape found a Contact/Booking/Forms link, one extra page per business, not a crawl. Same Firecrawl credential as the homepage scrape."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Always read the homepage text/links by name so this works whether or\n// not a secondary page was scraped - the true branch overwrote $json with\n// the Firecrawl response (HTTP nodes replace $json), the false branch didn't.\nconst home = $('Normalize Website Text').first().json;\nlet text = home.website_text || '';\nlet links = home.website_links || '';\n\nif ($json.data && $json.data.markdown) {\n  const secondaryUrl = $('Find Secondary Page to Scrape').first().json.secondary_url || '';\n  const secondaryText = String($json.data.markdown).substring(0, 3000);\n  text = (text + '\\n\\n--- SECONDARY PAGE (' + secondaryUrl + ') ---\\n\\n' + secondaryText).substring(0, 7000);\n\n  if (Array.isArray($json.data.links)) {\n    const existing = links ? links.split('\\n') : [];\n    links = Array.from(new Set([...existing, ...$json.data.links])).slice(0, 260).join('\\n').substring(0, 3200);\n  }\n}\n\nreturn [{ json: { website_text: text, website_links: links, founded_year: home.founded_year } }];"
+      },
+      "name": "Consolidate Website Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 3b. Optional Second Page (Contact / Booking / Forms)\nChecks the homepage's own link list for a Contact, Booking, or Forms page. If one exists, fetches it too and merges the text in, most homepages don't publish an email or show real booking type, a dedicated page often does. If none found, this is skipped and costs nothing extra.",
+        "height": 1164,
+        "width": 1020,
+        "color": 2
+      },
+      "name": "Section - 3b. Optional Second Page",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1904,
+        -448
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": 15
+      },
+      "name": "Limit Leads This Run",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        176,
+        1280
+      ],
+      "notes": "SAFETY VALVE. Caps how many leads one run analyses. Set to 15 while you are on Google's free Gemini plan (20 AI calls per day). When you move to a paid AI plan, raise this to 1000."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code node: no native n8n node can chunk a list into API-sized batches.\n// DataForSEO accepts up to 100 review jobs in ONE post. We group every lead\n// here and post them all up front, instead of one job per lead inside the loop.\n// priority: 2 = DataForSEO high-priority queue. Normal priority was still\n// 'Task In Queue' after 135s on run 192, leaving 7 of 10 leads with no reviews.\nconst CHUNK = 100;\nconst records = $input.all();\nconst out = [];\n\nfor (let i = 0; i < records.length; i += CHUNK) {\n  const payload = records.slice(i, i + CHUNK)\n    .map(r => ({\n      place_id: r.json.fields['Place ID'],\n      location_name: r.json.fields['City'],\n      language_code: 'en',\n      depth: 50,\n      sort_by: 'newest',\n      priority: 2,\n      tag: r.json.id\n    }))\n    .filter(t => t.place_id);\n\n  if (payload.length) {\n    out.push({ json: { batch_index: out.length, task_count: payload.length, payload } });\n  }\n}\n\nreturn out;"
+      },
+      "name": "Build Review Batches",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        1280
+      ],
+      "notes": "Groups all pending leads into batches of 100 for a single DataForSEO post each. The Airtable record id rides along in the 'tag' field so results can be matched back to the right business."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.dataforseo.com/v3/business_data/google/reviews/task_post",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "name": "Post Review Tasks - Batched",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        656,
+        1280
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput",
+      "notes": "Posts up to 100 review jobs per call. DataForSEO bills per job, not per API call.\n\n16 Aug: added priority 2 (high) in Build Review Batches. Normal-priority jobs were still 'Task In Queue' after 135s, so 7 of 10 businesses on run 192 were analysed with NO reviews. High priority doubles cost per job (0.00375 -> 0.0075, i.e. ~$7.50 per 1000 leads) and is worth it: reviews are the core evidence."
+    },
+    {
+      "parameters": {
+        "amount": 150
+      },
+      "name": "Wait for All Reviews",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        1280
+      ],
+      "notes": "Once for the whole run, no matter how many leads. Raised 90s -> 150s on 16 Aug: at 90s, 8 of 10 DataForSEO jobs were still queued. Combined with priority 2 most jobs should now land on the first collection pass."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code node: flattening a nested API response into one item per job\n// has no native equivalent.\nconst out = [];\nfor (const item of $input.all()) {\n  const tasks = (item.json && item.json.tasks) || [];\n  for (const t of tasks) {\n    const recordId = (t.data && t.data.tag) || '';\n    if (t.id && recordId) {\n      out.push({ json: { task_id: t.id, record_id: recordId } });\n    }\n  }\n}\nreturn out;"
+      },
+      "name": "List Review Task IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        1280
+      ],
+      "notes": "Turns the batched post responses into one item per review job, each carrying its Airtable record id."
+    },
+    {
+      "parameters": {
+        "url": "=https://api.dataforseo.com/v3/business_data/google/reviews/task_get/{{ $json.task_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "name": "Fetch Review Results",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1376,
+        1280
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput",
+      "notes": "Collecting a finished job is free and fast - DataForSEO only bills the post. No waiting here."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !!($json.tasks && $json.tasks[0] && $json.tasks[0].result) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Reviews Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1616,
+        1280
+      ],
+      "notes": "Splits off any jobs Google had not finished yet. Only those go round for a second look."
+    },
+    {
+      "parameters": {
+        "amount": 90
+      },
+      "name": "Wait for Stragglers",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1856,
+        1456
+      ],
+      "notes": "Second collection pass, once for the whole run, and only for jobs not ready first time. Raised 45s -> 90s on 16 Aug."
+    },
+    {
+      "parameters": {
+        "url": "=https://api.dataforseo.com/v3/business_data/google/reviews/task_get/{{ $('List Review Task IDs').item.json.task_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "name": "Fetch Review Results 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2096,
+        1456
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput",
+      "notes": "Second attempt for the stragglers only."
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "name": "Combine Review Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2336,
+        1280
+      ],
+      "notes": "Joins the first-pass results and the straggler results back into one stream."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code node: matching two lists together and computing review statistics\n// is not something a native n8n node does in one step.\n// Produces exactly one item per lead, reviews already attached, so the loop\n// below never has to touch the network for reviews again.\n\nconst idToRecord = {};\nfor (const item of $('List Review Task IDs').all()) {\n  idToRecord[item.json.task_id] = item.json.record_id;\n}\n\nconst reviewsByRecord = {};\nfor (const item of $input.all()) {\n  const t = item.json && item.json.tasks && item.json.tasks[0];\n  if (!t) continue;\n  const recId = (t.data && t.data.tag) || idToRecord[t.id];\n  if (!recId) continue;\n  const items = (t.result && t.result[0] && t.result[0].items) || [];\n  if (!reviewsByRecord[recId] || items.length > reviewsByRecord[recId].length) {\n    reviewsByRecord[recId] = items;\n  }\n}\n\nconst clean = (s) => String(s || '').replace(/\\n/g, ' ').trim();\n\nreturn $('Limit Leads This Run').all().map(rec => {\n  const f = rec.json.fields || {};\n  const reviews = reviewsByRecord[rec.json.id] || [];\n  const negatives = reviews.filter(r => r.rating && typeof r.rating.value === 'number' && r.rating.value <= 3);\n  const replied = reviews.filter(r => r.owner_answer).length;\n\n  return {\n    json: {\n      record_id: rec.json.id,\n      business_name: f['Business Name'] || '',\n      website: f['Website'] || '',\n      city: f['City'] || '',\n      category: f['Category'] || '',\n      place_id: f['Place ID'] || '',\n      rating: Number(f['Rating'] || 0),\n      review_count: Number(f['Review Count'] || 0),\n      reviews_text: reviews.map(r => '- ' + clean(r.review_text) + (r.timestamp ? ' [' + r.timestamp + ']' : '')).join('\\n').substring(0, 3000) || 'NOT FOUND',\n      negative_reviews_text: negatives.map(r => '- [' + r.rating.value + '/5]' + (r.owner_answer ? ' [OWNER REPLIED]' : ' [NO OWNER REPLY]') + ' ' + (clean(r.review_text) || '(star rating only, reviewer wrote no text)') + (r.timestamp ? ' (' + String(r.timestamp).substring(0, 10) + ')' : '')).join('\\n').substring(0, 4000) || 'NO NEGATIVE REVIEWS IN THIS BATCH',\n      negative_review_count: negatives.length,\n      unanswered_negative_count: negatives.filter(r => !r.owner_answer).length,\n      owner_reply_rate: Math.round(replied * 100 / (reviews.length || 1)),\n      reviews_fetched_count: reviews.length\n    }\n  };\n});"
+      },
+      "name": "Merge Reviews into Records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        1280
+      ],
+      "notes": "Matches each business to its own reviews and works out the counts (negative reviews, unanswered ones, owner reply rate). Produces the exact same fields the old Normalize Reviews node produced, so everything downstream is unchanged."
+    },
+    {
+      "parameters": {
+        "content": "## 0. Fetch ALL reviews first, this is the speed fix\n\n**What changed and why.** This whole row used to live *inside* the loop. Every business posted its own review job, then the workflow sat still for 45 seconds, then collected one result. Ten businesses meant ten 45-second naps, 11 minutes of the last 17-minute run spent doing nothing at all.\n\n**Now:** every review job is posted up front in batches of 100, the workflow waits **once**, and all results come back together. The loop then runs with reviews already in hand.\n\nThe wait no longer grows with your lead count. 10 leads or 1,000 leads, same 90 seconds.\n\n**Cost is unchanged.** DataForSEO bills per review job, not per API call.\n\n⚠️ **Limit Leads This Run is set to 15.** Deliberate: Google's free Gemini plan allows only 20 AI calls per day. Raise it to 1000 once you are on a paid AI plan.",
+        "height": 892,
+        "width": 2680,
+        "color": 4
+      },
+      "name": "Section - 0. Fetch ALL Reviews First (Speed Fix)",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        112,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## One model: Gemini\n\nGemini is the only model here. A Groq fallback was built and tested on 16 Aug, then **removed at the operator's instruction** to be revisited later. Everything needed to rebuild it is below.\n\n### Why it was removed\nIt worked *technically* but failed our own quality bar. On exec 193 it:\n- pasted our internal machine wording back as client-facing evidence (*\"booking page is listed as unconfirmed\"*)\n- marked `evidence_type: Proven` while the same finding said `Likely`\n- listed 7 of the 11 offers at once\n- scored a 5.0-star practice with zero unanswered complaints as **High**\n\nClassic confidently-wrong, the exact failure mode this project keeps hitting.\n\n### To rebuild it\n1. Add a **Groq Chat Model** node, credential `Groq API (Lead Gen Prospecting)`.\n2. Model **`openai/gpt-oss-120b`**. NOT `llama-3.3-70b-versatile` (HTTP 400, Groq's Llama models reject the strict json_schema this agent needs). NEVER `llama-3.1-8b-instant` (far too small).\n3. Connect it to `Find Problem and Score` on **ai_languageModel input 1**.\n4. Set `Enable Fallback Model` = true on the agent.\n5. Re-test against a lead Gemini already scored and compare tier + evidence quote side by side before trusting it.\n\n⚠️ With no fallback, a spent Gemini allowance re-queues leads as `Waiting for analysis`. Nothing is lost, the next run picks them up.",
+        "height": 420,
+        "width": 620,
+        "color": 5
+      },
+      "name": "Section - 4c. Gemini Only (Groq Parked)",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5376,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !!($json.tasks && $json.tasks[0] && $json.tasks[0].result) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Reviews Ready After 2nd Pass?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2352,
+        880
+      ],
+      "notes": "Anything still queued after two passes gets one final attempt."
+    },
+    {
+      "parameters": {
+        "amount": 90
+      },
+      "name": "Wait for Slow Stragglers",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2352,
+        1072
+      ],
+      "notes": "Third and final collection pass, once for the whole run. Anything still queued after this is genuinely too slow and the lead is analysed without reviews."
+    },
+    {
+      "parameters": {
+        "url": "=https://api.dataforseo.com/v3/business_data/google/reviews/task_get/{{ $('List Review Task IDs').item.json.task_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "name": "Fetch Review Results 3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2592,
+        1072
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput",
+      "notes": "Final attempt. Collecting a job is free (cost 0), so extra passes cost nothing but time."
+    }
+  ],
+  "connections": {
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Find Problem and Score",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Problem and Score Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Find Problem and Score",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Analysis Run": {
+      "main": [
+        [
+          {
+            "node": "Get Pending Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "All Businesses Processed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Reviews",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Reviews": {
+      "main": [
+        [
+          {
+            "node": "Scrape Website - Firecrawl",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Website - Firecrawl": {
+      "main": [
+        [
+          {
+            "node": "Normalize Website Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find YouTube Link in Text": {
+      "main": [
+        [
+          {
+            "node": "Channel Link Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Channel Link Found?": {
+      "main": [
+        [
+          {
+            "node": "Get Channel by Handle",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search YouTube by Business Name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Channel by Handle": {
+      "main": [
+        [
+          {
+            "node": "Normalize YouTube Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search YouTube by Business Name": {
+      "main": [
+        [
+          {
+            "node": "Channel Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Channel Found?": {
+      "main": [
+        [
+          {
+            "node": "Get Channel Stats",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize YouTube Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Channel Stats": {
+      "main": [
+        [
+          {
+            "node": "Normalize YouTube Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Problem and Score": {
+      "main": [
+        [
+          {
+            "node": "AI Call OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Call OK?": {
+      "main": [
+        [
+          {
+            "node": "Compute Priority",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Analysis Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Analysis Failed": {
+      "main": [
+        [
+          {
+            "node": "Prepare Tab 3 Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Priority": {
+      "main": [
+        [
+          {
+            "node": "Prepare Tab 3 Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Tab 3 Update": {
+      "main": [
+        [
+          {
+            "node": "Update Tab 3 Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Tab 3 Record": {
+      "main": [
+        [
+          {
+            "node": "Wait 200ms (a)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 200ms (a)": {
+      "main": [
+        [
+          {
+            "node": "Priority Tier?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Priority Tier?": {
+      "main": [
+        [
+          {
+            "node": "Save to Tab 1 - Not Now",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Tab 1 - Not Now": {
+      "main": [
+        [
+          {
+            "node": "Wait 200ms (b)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 200ms (b)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize YouTube Data": {
+      "main": [
+        [
+          {
+            "node": "Get Latest Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Latest Upload": {
+      "main": [
+        [
+          {
+            "node": "Assess Digital Footprint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess Digital Footprint": {
+      "main": [
+        [
+          {
+            "node": "Find Problem and Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Website Text": {
+      "main": [
+        [
+          {
+            "node": "Find Secondary Page to Scrape",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Secondary Page to Scrape": {
+      "main": [
+        [
+          {
+            "node": "Secondary Page Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Secondary Page Found?": {
+      "main": [
+        [
+          {
+            "node": "Scrape Secondary Page - Firecrawl",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consolidate Website Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Secondary Page - Firecrawl": {
+      "main": [
+        [
+          {
+            "node": "Consolidate Website Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidate Website Text": {
+      "main": [
+        [
+          {
+            "node": "Find YouTube Link in Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Pending Records": {
+      "main": [
+        [
+          {
+            "node": "Limit Leads This Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit Leads This Run": {
+      "main": [
+        [
+          {
+            "node": "Build Review Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Review Batches": {
+      "main": [
+        [
+          {
+            "node": "Post Review Tasks - Batched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Review Tasks - Batched": {
+      "main": [
+        [
+          {
+            "node": "Wait for All Reviews",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for All Reviews": {
+      "main": [
+        [
+          {
+            "node": "List Review Task IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Review Task IDs": {
+      "main": [
+        [
+          {
+            "node": "Fetch Review Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Review Results": {
+      "main": [
+        [
+          {
+            "node": "Reviews Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reviews Ready?": {
+      "main": [
+        [
+          {
+            "node": "Combine Review Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for Stragglers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Stragglers": {
+      "main": [
+        [
+          {
+            "node": "Fetch Review Results 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Review Results": {
+      "main": [
+        [
+          {
+            "node": "Merge Reviews into Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Reviews into Records": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Review Results 2": {
+      "main": [
+        [
+          {
+            "node": "Reviews Ready After 2nd Pass?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reviews Ready After 2nd Pass?": {
+      "main": [
+        [
+          {
+            "node": "Combine Review Results",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Wait for Slow Stragglers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Slow Stragglers": {
+      "main": [
+        [
+          {
+            "node": "Fetch Review Results 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Review Results 3": {
+      "main": [
+        [
+          {
+            "node": "Combine Review Results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

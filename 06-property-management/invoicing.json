@@ -1,0 +1,1469 @@
+{
+  "name": "PM Template - Invoicing",
+  "nodes": [
+    {
+      "name": "Watch for Job Complete",
+      "notes": "Polling only, 30 min interval - less time-critical than Booking's link-send (15 min). Requires 'Last Modified Time' to be a real Last Modified Time field type.",
+      "type": "n8n-nodes-base.airtableTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 30,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "authentication": "airtableTokenApi",
+        "baseId": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "tableId": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "triggerField": "Last Modified Time",
+        "additionalFields": {
+          "formula": "{Status} = 'Job Complete'"
+        }
+      }
+    },
+    {
+      "name": "Already Invoiced?",
+      "notes": "Idempotency guard: a Job Complete row could get re-touched and re-fire this trigger. Skip rather than create a duplicate invoice.",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        272,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.fields['Xero Invoice ID'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Already Invoiced - Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        528,
+        128
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Required Fields for Invoicing?",
+      "notes": "Never invoice with a fabricated amount or missing recipient.",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        528,
+        -80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.fields['Property Owner Email'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.fields['Job Price (Net, GBP)'] }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Flag Missing Invoice Fields",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        784,
+        -160
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$json.id}}",
+            "Needs Review": true,
+            "Review Reason": "Missing Property Owner Email or Job Price (Net, GBP) - cannot invoice"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Notify Coordinator - Invoice Blocked",
+      "notes": "PLACEHOLDER_COORDINATOR_EMAIL - fill in before activating.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        1040,
+        -160
+      ],
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=Job needs review before invoicing: {{$('Watch for Job Complete').item.json.fields['Property Address']}}",
+        "message": "=Job ID {{$('Watch for Job Complete').item.json.fields['Job ID']}} at {{$('Watch for Job Complete').item.json.fields['Property Address']}} reached Job Complete but is missing the Property Owner Email or Job Price. Please fill in the missing field(s).",
+        "options": {}
+      }
+    },
+    {
+      "name": "Owner Xero Contact Cached?",
+      "notes": "Avoids a redundant Xero Contact search once resolved once.",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.fields['Owner Xero Contact ID'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Search Owner Xero Contact",
+      "notes": "alwaysOutputData=true required. 'where' filter shape unverified against a live call - check before first real test.",
+      "type": "n8n-nodes-base.xero",
+      "typeVersion": 1,
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1040,
+        80
+      ],
+      "parameters": {
+        "resource": "contact",
+        "operation": "getAll",
+        "organizationId": "YOUR_XERO_TENANT_ID",
+        "options": {
+          "where": "=EmailAddress==\"{{ $json.fields['Property Owner Email'] }}\""
+        }
+      }
+    },
+    {
+      "name": "Owner Contact Found?",
+      "notes": "Exact response shape unverified until tested live - expression checks both shapes defensively.",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1296,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.ContactID || ($json.contacts && $json.contacts[0] && $json.contacts[0].ContactID) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Create Owner Xero Contact",
+      "notes": "Email address on the created Contact unverified - may need additionalFields collection.",
+      "type": "n8n-nodes-base.xero",
+      "typeVersion": 1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1552,
+        176
+      ],
+      "parameters": {
+        "resource": "contact",
+        "organizationId": "YOUR_XERO_TENANT_ID",
+        "name": "={{$('Watch for Job Complete').item.json.fields['Property Owner Name']}}",
+        "additionalFields": {}
+      }
+    },
+    {
+      "name": "Cache Owner Contact ID",
+      "notes": "Fed by both found and created paths.",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1808,
+        80
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$('Watch for Job Complete').item.json.id}}",
+            "Owner Xero Contact ID": "={{$json.ContactID || ($json.contacts && $json.contacts[0] && $json.contacts[0].ContactID)}}"
+          }
+        },
+        "options": {
+          "typecast": true
+        }
+      }
+    },
+    {
+      "name": "Payment Terms (Days)",
+      "notes": "Tunable constant. Net 14 days is a sensible default, not a confirmed contractual fact - confirm against real client terms before go-live.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2064,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "pt1",
+              "name": "payment_term_days",
+              "type": "number",
+              "value": 14
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Create Sales Invoice",
+      "notes": "Account code 200, lineItemsUi shape, and taxType OUTPUT2 confirmed working against a live create call (2026-07-25). status:AUTHORISED required for AmountDue tracking.",
+      "type": "n8n-nodes-base.xero",
+      "typeVersion": 1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2320,
+        0
+      ],
+      "parameters": {
+        "organizationId": "YOUR_XERO_TENANT_ID",
+        "type": "ACCREC",
+        "contactId": "={{$('Watch for Job Complete').item.json.fields['Owner Xero Contact ID'] || $('Cache Owner Contact ID').item.json.fields['Owner Xero Contact ID']}}",
+        "lineItemsUi": {
+          "lineItemsValues": [
+            {
+              "description": "={{$('Watch for Job Complete').item.json.fields['Issue Description'] || ('Repair job at ' + $('Watch for Job Complete').item.json.fields['Property Address'])}}",
+              "unitAmount": "={{$('Watch for Job Complete').item.json.fields['Job Price (Net, GBP)']}}",
+              "accountCode": "200",
+              "taxType": "OUTPUT2"
+            }
+          ]
+        },
+        "additionalFields": {
+          "date": "={{$now.toISODate()}}",
+          "dueDate": "={{$now.plus({ days: $json.payment_term_days }).toISODate()}}",
+          "reference": "=Job {{$('Watch for Job Complete').item.json.fields['Job ID']}} - {{$('Watch for Job Complete').item.json.fields['Property Address']}}",
+          "status": "AUTHORISED"
+        }
+      }
+    },
+    {
+      "name": "Invoice Created OK?",
+      "notes": "Explicit success guard rather than trusting onError alone.",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2576,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.InvoiceID || ($json.invoices && $json.invoices[0] && $json.invoices[0].InvoiceID) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Flag Invoice Creation Failed",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2832,
+        96
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$('Watch for Job Complete').item.json.id}}",
+            "Needs Review": true,
+            "Review Reason": "=Xero invoice creation failed: {{$json.message || 'unknown error'}}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Notify Coordinator - Invoice Failed",
+      "notes": "PLACEHOLDER_COORDINATOR_EMAIL - fill in before activating.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        3088,
+        96
+      ],
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=Xero invoice creation failed: Job {{$('Watch for Job Complete').item.json.fields['Job ID']}}",
+        "message": "=Creating the Xero Sales Invoice for Job {{$('Watch for Job Complete').item.json.fields['Job ID']}} failed: {{$json.message || 'unknown error'}}.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Update Job - Awaiting Payment",
+      "notes": "Invoice Due Date recomputed from the same constant used to create the invoice.",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2832,
+        -96
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$('Watch for Job Complete').item.json.id}}",
+            "Status": "Awaiting Payment",
+            "Xero Invoice ID": "={{$json.InvoiceID || ($json.invoices && $json.invoices[0] && $json.invoices[0].InvoiceID)}}",
+            "Invoice Number": "={{$json.InvoiceNumber || ($json.invoices && $json.invoices[0] && $json.invoices[0].InvoiceNumber)}}",
+            "Invoice Due Date": "={{$now.plus({ days: $('Payment Terms (Days)').item.json.payment_term_days }).toISODate()}}",
+            "Invoice Amount": "={{$('Watch for Job Complete').item.json.fields['Job Price (Net, GBP)']}}",
+            "Payment Reminder Tier": "None"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Email Owner - Invoice Issued",
+      "notes": "Does not depend on a Xero-hosted online-payment link - unverified whether it exists.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        3088,
+        -96
+      ],
+      "parameters": {
+        "sendTo": "={{$('Watch for Job Complete').item.json.fields['Property Owner Email']}}",
+        "subject": "=Invoice for your property at {{$('Watch for Job Complete').item.json.fields['Property Address']}}",
+        "message": "=Hi {{$('Watch for Job Complete').item.json.fields['Property Owner Name']}},\n\nThe repair job at {{$('Watch for Job Complete').item.json.fields['Property Address']}} is complete. An invoice for GBP {{$('Watch for Job Complete').item.json.fields['Job Price (Net, GBP)']}} has been issued and is due on {{$now.plus({ days: $('Payment Terms (Days)').item.json.payment_term_days }).toISODate()}}.\n\nThank you.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Daily Payment Chase Check",
+      "notes": "Daily at 9am, same precedent as Booking's Daily Escalation Check.",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        480
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Search Awaiting Payment Jobs",
+      "notes": "Zero matches is legitimate - nothing to chase.",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        272,
+        480
+      ],
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "filterByFormula": "={{ \"{Status} = 'Awaiting Payment'\" }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Get Xero Invoices",
+      "notes": "One bulk call per run rather than per-item. 'options.statuses' unverified live.",
+      "type": "n8n-nodes-base.xero",
+      "typeVersion": 1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        528,
+        480
+      ],
+      "parameters": {
+        "operation": "getAll",
+        "organizationId": "YOUR_XERO_TENANT_ID",
+        "options": {
+          "statuses": [
+            "AUTHORISED"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Merge Jobs with Invoice Status",
+      "notes": "Pairs each Awaiting-Payment job with its live Xero invoice state - exact matching syntax unverified live.",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        784,
+        480
+      ],
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "fields.Xero Invoice ID = invoiceID",
+        "options": {}
+      }
+    },
+    {
+      "name": "Reminder Tier Thresholds (Days)",
+      "notes": "Tunable constants, proposed defaults not confirmed business facts.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1040,
+        480
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rt1",
+              "name": "friendly_days",
+              "type": "number",
+              "value": 3
+            },
+            {
+              "id": "rt2",
+              "name": "firm_days",
+              "type": "number",
+              "value": 10
+            },
+            {
+              "id": "rt3",
+              "name": "final_days",
+              "type": "number",
+              "value": 21
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Fully Paid?",
+      "notes": "amountDue field-name casing unverified against a live response.",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1296,
+        480
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Merge Jobs with Invoice Status').item.json.AmountDue }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Update Job - Paid",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1552,
+        400
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$('Merge Jobs with Invoice Status').item.json.id}}",
+            "Status": "Paid"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Email Owner - Payment Received",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        1808,
+        400
+      ],
+      "parameters": {
+        "sendTo": "={{$('Merge Jobs with Invoice Status').item.json.fields['Property Owner Email']}}",
+        "subject": "=Payment received - thank you",
+        "message": "=Hi {{$('Merge Jobs with Invoice Status').item.json.fields['Property Owner Name']}},\n\nThank you - we've received payment for the invoice covering {{$('Merge Jobs with Invoice Status').item.json.fields['Property Address']}}.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Compute Days Past Due",
+      "notes": "dueDate field-name casing unverified live. Uses n8n's Luxon-based date expressions.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1552,
+        560
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d1",
+              "name": "days_past_due",
+              "type": "number",
+              "value": "={{ $('Merge Jobs with Invoice Status').item.json.DueDateString ? Math.floor($now.diff(DateTime.fromISO($('Merge Jobs with Invoice Status').item.json.DueDateString), 'days').days) : 0 }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Compute Reminder Tier To Send",
+      "notes": "Single source of truth for tier logic.",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1808,
+        560
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "t1",
+              "name": "tier_to_send",
+              "type": "string",
+              "value": "={{ $json.days_past_due >= $('Reminder Tier Thresholds (Days)').item.json.final_days && $('Merge Jobs with Invoice Status').item.json.fields['Payment Reminder Tier'] !== 'Final' ? 'Final' : ($json.days_past_due >= $('Reminder Tier Thresholds (Days)').item.json.firm_days && !['Firm','Final'].includes($('Merge Jobs with Invoice Status').item.json.fields['Payment Reminder Tier']) ? 'Firm' : ($json.days_past_due >= $('Reminder Tier Thresholds (Days)').item.json.friendly_days && !['Friendly','Firm','Final'].includes($('Merge Jobs with Invoice Status').item.json.fields['Payment Reminder Tier']) ? 'Friendly' : 'None')) }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Send Final Notice?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2064,
+        480
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.tier_to_send}}",
+              "rightValue": "Final",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Email Owner - Final Notice",
+      "notes": "Does not mention late fees/interest - human sign-off recommended before go-live.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        2320,
+        400
+      ],
+      "parameters": {
+        "sendTo": "={{$('Merge Jobs with Invoice Status').item.json.fields['Property Owner Email']}}",
+        "subject": "=Final notice: invoice for {{$('Merge Jobs with Invoice Status').item.json.fields['Property Address']}} is significantly overdue",
+        "message": "=Hi {{$('Merge Jobs with Invoice Status').item.json.fields['Property Owner Name']}},\n\nInvoice {{$('Merge Jobs with Invoice Status').item.json.fields['Invoice Number']}} for {{$('Merge Jobs with Invoice Status').item.json.fields['Property Address']}} (GBP {{$('Merge Jobs with Invoice Status').item.json.fields['Invoice Amount']}}) is now significantly overdue. Please arrange payment as soon as possible.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Update Job - Tier Final",
+      "notes": "Sets Needs Review=true so this surfaces in the coordinator's exception view.",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2576,
+        400
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$('Merge Jobs with Invoice Status').item.json.id}}",
+            "Payment Reminder Tier": "Final",
+            "Last Reminder Sent Date": "={{$now.toISODate()}}",
+            "Needs Review": true,
+            "Review Reason": "Invoice 21+ days overdue, no payment received"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Notify Coordinator - Invoice Overdue",
+      "notes": "PLACEHOLDER_COORDINATOR_EMAIL - fill in before activating.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        2832,
+        400
+      ],
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=Invoice 21+ days overdue: {{$('Merge Jobs with Invoice Status').item.json.fields['Property Address']}}",
+        "message": "=Invoice {{$('Merge Jobs with Invoice Status').item.json.fields['Invoice Number']}} is 21+ days overdue and the automated Final Notice has just been sent.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Send Firm Reminder?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2064,
+        640
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.tier_to_send}}",
+              "rightValue": "Firm",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Email Owner - Firm Reminder",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        2320,
+        640
+      ],
+      "parameters": {
+        "sendTo": "={{$('Merge Jobs with Invoice Status').item.json.fields['Property Owner Email']}}",
+        "subject": "=Reminder: invoice for {{$('Merge Jobs with Invoice Status').item.json.fields['Property Address']}} is overdue",
+        "message": "=Hi {{$('Merge Jobs with Invoice Status').item.json.fields['Property Owner Name']}},\n\nThis is a follow-up that invoice {{$('Merge Jobs with Invoice Status').item.json.fields['Invoice Number']}} (GBP {{$('Merge Jobs with Invoice Status').item.json.fields['Invoice Amount']}}) is now overdue. Please arrange payment at your earliest convenience.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Update Job - Tier Firm",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2576,
+        640
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$('Merge Jobs with Invoice Status').item.json.id}}",
+            "Payment Reminder Tier": "Firm",
+            "Last Reminder Sent Date": "={{$now.toISODate()}}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Send Friendly Reminder?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2064,
+        800
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.tier_to_send}}",
+              "rightValue": "Friendly",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Email Owner - Friendly Reminder",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        2320,
+        800
+      ],
+      "parameters": {
+        "sendTo": "={{$('Merge Jobs with Invoice Status').item.json.fields['Property Owner Email']}}",
+        "subject": "=Just in case you missed it - invoice for {{$('Merge Jobs with Invoice Status').item.json.fields['Property Address']}}",
+        "message": "=Hi {{$('Merge Jobs with Invoice Status').item.json.fields['Property Owner Name']}},\n\nJust a friendly note that invoice {{$('Merge Jobs with Invoice Status').item.json.fields['Invoice Number']}} (GBP {{$('Merge Jobs with Invoice Status').item.json.fields['Invoice Amount']}}) has passed its due date - you may have already sent payment, in which case please disregard this.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Update Job - Tier Friendly",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2576,
+        800
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$('Merge Jobs with Invoice Status').item.json.id}}",
+            "Payment Reminder Tier": "Friendly",
+            "Last Reminder Sent Date": "={{$now.toISODate()}}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "No Reminder Due",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2320,
+        960
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Watch for Job Complete": {
+      "main": [
+        [
+          {
+            "node": "Already Invoiced?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Invoiced?": {
+      "main": [
+        [
+          {
+            "node": "Required Fields for Invoicing?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Already Invoiced - Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Required Fields for Invoicing?": {
+      "main": [
+        [
+          {
+            "node": "Owner Xero Contact Cached?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flag Missing Invoice Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flag Missing Invoice Fields": {
+      "main": [
+        [
+          {
+            "node": "Notify Coordinator - Invoice Blocked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Owner Xero Contact Cached?": {
+      "main": [
+        [
+          {
+            "node": "Payment Terms (Days)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search Owner Xero Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Owner Xero Contact": {
+      "main": [
+        [
+          {
+            "node": "Owner Contact Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Owner Contact Found?": {
+      "main": [
+        [
+          {
+            "node": "Cache Owner Contact ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Owner Xero Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Owner Xero Contact": {
+      "main": [
+        [
+          {
+            "node": "Cache Owner Contact ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cache Owner Contact ID": {
+      "main": [
+        [
+          {
+            "node": "Payment Terms (Days)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payment Terms (Days)": {
+      "main": [
+        [
+          {
+            "node": "Create Sales Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Sales Invoice": {
+      "main": [
+        [
+          {
+            "node": "Invoice Created OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invoice Created OK?": {
+      "main": [
+        [
+          {
+            "node": "Update Job - Awaiting Payment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flag Invoice Creation Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flag Invoice Creation Failed": {
+      "main": [
+        [
+          {
+            "node": "Notify Coordinator - Invoice Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Job - Awaiting Payment": {
+      "main": [
+        [
+          {
+            "node": "Email Owner - Invoice Issued",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Payment Chase Check": {
+      "main": [
+        [
+          {
+            "node": "Search Awaiting Payment Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Awaiting Payment Jobs": {
+      "main": [
+        [
+          {
+            "node": "Get Xero Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Xero Invoices": {
+      "main": [
+        [
+          {
+            "node": "Merge Jobs with Invoice Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Jobs with Invoice Status": {
+      "main": [
+        [
+          {
+            "node": "Reminder Tier Thresholds (Days)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reminder Tier Thresholds (Days)": {
+      "main": [
+        [
+          {
+            "node": "Fully Paid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fully Paid?": {
+      "main": [
+        [
+          {
+            "node": "Update Job - Paid",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compute Days Past Due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Job - Paid": {
+      "main": [
+        [
+          {
+            "node": "Email Owner - Payment Received",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Days Past Due": {
+      "main": [
+        [
+          {
+            "node": "Compute Reminder Tier To Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Reminder Tier To Send": {
+      "main": [
+        [
+          {
+            "node": "Send Final Notice?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Final Notice?": {
+      "main": [
+        [
+          {
+            "node": "Email Owner - Final Notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Firm Reminder?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Owner - Final Notice": {
+      "main": [
+        [
+          {
+            "node": "Update Job - Tier Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Job - Tier Final": {
+      "main": [
+        [
+          {
+            "node": "Notify Coordinator - Invoice Overdue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Firm Reminder?": {
+      "main": [
+        [
+          {
+            "node": "Email Owner - Firm Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Friendly Reminder?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Owner - Firm Reminder": {
+      "main": [
+        [
+          {
+            "node": "Update Job - Tier Firm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Friendly Reminder?": {
+      "main": [
+        [
+          {
+            "node": "Email Owner - Friendly Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Reminder Due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Owner - Friendly Reminder": {
+      "main": [
+        [
+          {
+            "node": "Update Job - Tier Friendly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

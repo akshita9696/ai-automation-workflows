@@ -1,0 +1,796 @@
+{
+  "name": "3 - Opt-Out and Suppression",
+  "nodes": [
+    {
+      "name": "Sticky Note - s-setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -800,
+        -400
+      ],
+      "parameters": {
+        "width": 620,
+        "height": 480,
+        "color": 4,
+        "content": "## THE OPT-OUT CATCHER\n\nThis is the one that keeps the business out of trouble. It watches the inbox, and the moment somebody asks to be left alone it flags them permanently. Both the reactivation sweep and the review request check that flag before they send anything.\n\n**Fill in before switching on:** the Airtable base/table IDs (`appREPLACE_...`), a token scoped to this base, and the owner email.\n\n**Switch this on FIRST** - before `1 - Dormant Customer Sweep` and before `2 - Review Request After Job`. Never the other way round.\n\nSuppression is permanent by design. There is no automatic way back on the list - if somebody genuinely wants back in, you clear the flag by hand."
+      }
+    },
+    {
+      "name": "Sticky Note - s-two",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -400
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 320,
+        "color": 5,
+        "content": "## Two passes, cheapest first\n\n**Pass 1 - word check.** Almost every opt-out says one of a handful of things: unsubscribe, remove me, stop emailing. That is checked instantly and costs nothing.\n\n**Pass 2 - Gemini.** Only messages that did NOT trip pass 1 *and* are short get read by Gemini, to catch the politely worded ones - \"I'd rather not hear from you again.\"\n\nLong emails skip pass 2 on purpose. Nobody writes a six-paragraph opt-out, and reading every long email would burn the daily Gemini allowance for no gain."
+      }
+    },
+    {
+      "name": "Sticky Note - s-perm",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1500,
+        -400
+      ],
+      "parameters": {
+        "width": 460,
+        "height": 280,
+        "color": 3,
+        "content": "## What suppression actually does\n\nTwo writes, not one:\n\n1. The address goes on the **Suppression List** - checked before any review request, including for people who are not in the customer list at all.\n\n2. If they ARE a known customer, their record is flagged too, which takes them out of the reactivation sweep.\n\nBoth are needed. One without the other leaves a gap somebody eventually falls through."
+      }
+    },
+    {
+      "name": "Watch the Inbox",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -160,
+        0
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyHour"
+            }
+          ]
+        },
+        "simple": true,
+        "filters": {},
+        "options": {}
+      }
+    },
+    {
+      "name": "Normalize the Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        60,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "from_email",
+              "type": "string",
+              "value": "={{ (($json.From || $json.from || '') + '').match(/[\\w.\\-+]+@[\\w.\\-]+\\.\\w+/)?.[0]?.toLowerCase() || '' }}"
+            },
+            {
+              "id": "a2",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ $json.Subject || $json.subject || '' }}"
+            },
+            {
+              "id": "a3",
+              "name": "reply_text",
+              "type": "string",
+              "value": "={{ (($json.snippet || $json.text || $json.textPlain || '') + '') }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Could Read a Sender Address?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        280,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ String($json.from_email) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Ignore - No Sender",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        500,
+        220
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Obvious Opt-Out Words?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        500,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ /\\b(unsubscribe|opt ?out|stop emailing|stop contacting|remove me|take me off|do not contact|dont contact|no longer wish|leave me alone)\\b/i.test($json.reply_text) ? 'yes' : '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Confirmed by Word Check",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1240,
+        -200
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "detected_by",
+              "type": "string",
+              "value": "word check"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Short Enough to Be Worth Reading?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        720,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ String(($json.reply_text || '').length > 0 && ($json.reply_text || '').length < 400 ? 'yes' : '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Ignore - Too Long to Be an Opt-Out",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        940,
+        340
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Gemini - Opt-Out Reader",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "retryOnFail": false,
+      "position": [
+        880,
+        520
+      ],
+      "parameters": {
+        "modelName": "models/gemini-3-flash-preview",
+        "options": {}
+      }
+    },
+    {
+      "name": "Opt-Out Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1060,
+        520
+      ],
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"is_opt_out\": {\n      \"type\": \"string\",\n      \"description\": \"The word true or the word false. true only if the sender is asking not to be contacted again.\"\n    },\n    \"reason\": {\n      \"type\": \"string\",\n      \"description\": \"Under 12 words, quoting or paraphrasing the part that made you decide.\"\n    }\n  },\n  \"required\": [\n    \"is_opt_out\",\n    \"reason\"\n  ]\n}"
+      }
+    },
+    {
+      "name": "Does This Person Want Out?",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 20000,
+      "onError": "continueErrorOutput",
+      "position": [
+        960,
+        120
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Decide whether this person is asking not to be contacted again.\n\nSubject: {{ $('Normalize the Message').item.json.subject }}\n\nMessage:\n{{ $('Normalize the Message').item.json.reply_text }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You decide one thing only: is the sender asking not to be contacted again?\n\nAnswer true when they ask to be removed, to stop hearing from you, to be taken off a list, or say in any words that they do not want further messages.\n\nAnswer false when they are simply declining this particular thing, are annoyed about something else, are asking a question, or the message is an automatic out-of-office.\n\nDeclining one job is not an opt-out. Being unhappy is not an opt-out. Asking not to be messaged again is.\n\nIf you genuinely cannot tell, answer true. Wrongly removing someone costs one message. Wrongly keeping someone who asked to leave is the thing that gets a business reported."
+        }
+      }
+    },
+    {
+      "name": "Gemini Says Opt Out?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1240,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ String($json.output?.is_opt_out ?? $json.is_opt_out) === 'true' ? 'yes' : '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Ignore - Not an Opt-Out",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1460,
+        340
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Ignore - Gemini Unavailable",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1240,
+        520
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Sticky Note - s-aifail",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1140,
+        620
+      ],
+      "parameters": {
+        "width": 440,
+        "height": 200,
+        "color": 6,
+        "content": "## When Gemini is down\n\nThese messages are dropped rather than guessed at.\n\nThe word check above has already caught every explicitly worded opt-out - this branch only ever sees the subtly phrased ones. Flagging every unreadable email as an opt-out would wipe the customer list the first time Gemini rate-limits.\n\nThe cost is a rare missed polite opt-out, which the next message's own opt-out line catches."
+      }
+    },
+    {
+      "name": "Confirmed by Gemini",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1460,
+        60
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "detected_by",
+              "type": "string",
+              "value": "={{ 'Gemini - ' + ($json.output?.reason || $json.reason || '') }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Add to the Suppression List",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "position": [
+        1700,
+        -80
+      ],
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_REACTIVATION_BASE",
+          "cachedResultName": "Reactivation and Reviews"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_SUPPRESSION",
+          "cachedResultName": "Suppression List"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Email": "={{ $('Normalize the Message').item.json.from_email }}",
+            "Reason": "={{ $json.detected_by }}",
+            "Added At": "={{ $now.toISO() }}",
+            "Source Message": "={{ $('Normalize the Message').item.json.reply_text }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Alert Owner - Could Not Suppress",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1700,
+        300
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "=URGENT: opt-out request was NOT recorded",
+        "emailType": "text",
+        "message": "=Somebody asked to be left alone and it could NOT be written to the suppression list. They may be contacted again.\n\nAddress: {{ $('Normalize the Message').item.json.from_email }}\nWhat they wrote: {{ $('Normalize the Message').item.json.reply_text }}\n\nWhat Airtable said: {{ JSON.stringify($json.error || $json) }}\n\nAdd them to the suppression list by hand now. This is the one failure in the system worth stopping what you are doing for.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Are They a Known Customer?",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1940,
+        -80
+      ],
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_REACTIVATION_BASE",
+          "cachedResultName": "Reactivation and Reviews"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_CUSTOMERS",
+          "cachedResultName": "Customers"
+        },
+        "filterByFormula": "=LOWER({Email}) = '{{ $('Normalize the Message').item.json.from_email }}'",
+        "options": {}
+      }
+    },
+    {
+      "name": "Found Them in the Customer List?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2160,
+        -80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ String($json.id || '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Flag the Customer Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2380,
+        -200
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_REACTIVATION_BASE",
+          "cachedResultName": "Reactivation and Reviews"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_CUSTOMERS",
+          "cachedResultName": "Customers"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Are They a Known Customer?').item.json.id }}",
+            "Opted Out": "={{ true }}",
+            "Suppressed": "={{ true }}",
+            "Status": "Suppressed"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Tell Owner Someone Opted Out",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2600,
+        -80
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "=Opted out: {{ $('Normalize the Message').item.json.from_email }}",
+        "emailType": "text",
+        "message": "={{ $('Normalize the Message').item.json.from_email }} has asked not to be contacted again and has been suppressed.\n\nThey will not receive reactivation messages or review requests from now on.\n\nHow it was spotted: {{ $('Add to the Suppression List').item.json.Reason || 'see suppression list' }}\n\nWhat they wrote:\n{{ $('Normalize the Message').item.json.reply_text }}\n\nThis is permanent. If they ever ask to come back, clear the flag on their record by hand.",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Watch the Inbox": {
+      "main": [
+        [
+          {
+            "node": "Normalize the Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize the Message": {
+      "main": [
+        [
+          {
+            "node": "Could Read a Sender Address?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Could Read a Sender Address?": {
+      "main": [
+        [
+          {
+            "node": "Obvious Opt-Out Words?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore - No Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obvious Opt-Out Words?": {
+      "main": [
+        [
+          {
+            "node": "Confirmed by Word Check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Short Enough to Be Worth Reading?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Short Enough to Be Worth Reading?": {
+      "main": [
+        [
+          {
+            "node": "Does This Person Want Out?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore - Too Long to Be an Opt-Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Opt-Out Reader": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Does This Person Want Out?",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Opt-Out Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Does This Person Want Out?",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Does This Person Want Out?": {
+      "main": [
+        [
+          {
+            "node": "Gemini Says Opt Out?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore - Gemini Unavailable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Says Opt Out?": {
+      "main": [
+        [
+          {
+            "node": "Confirmed by Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore - Not an Opt-Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmed by Word Check": {
+      "main": [
+        [
+          {
+            "node": "Add to the Suppression List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmed by Gemini": {
+      "main": [
+        [
+          {
+            "node": "Add to the Suppression List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to the Suppression List": {
+      "main": [
+        [
+          {
+            "node": "Are They a Known Customer?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Owner - Could Not Suppress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Are They a Known Customer?": {
+      "main": [
+        [
+          {
+            "node": "Found Them in the Customer List?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Found Them in the Customer List?": {
+      "main": [
+        [
+          {
+            "node": "Flag the Customer Record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tell Owner Someone Opted Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flag the Customer Record": {
+      "main": [
+        [
+          {
+            "node": "Tell Owner Someone Opted Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

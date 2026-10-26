@@ -1,0 +1,855 @@
+{
+  "name": "2 - Chase Due Quotes",
+  "nodes": [
+    {
+      "name": "Sticky Note - s-setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -360
+      ],
+      "parameters": {
+        "width": 600,
+        "height": 560,
+        "color": 4,
+        "content": "## THE ENGINE\n\nThis is the part that does the chasing. Once a day it asks Airtable \"which quotes are due a nudge today?\", writes a different message for each one, sends it, and books the next nudge.\n\n**It stops on its own.** Four touches maximum, then the quote is marked Stopped and you get told. It also never picks up a quote that has been replied to, won, lost, or opted out - those are filtered out before anything is written.\n\n**Fill in before switching on:** the Airtable base/table IDs (`appREPLACE_...`), a token scoped to this base, and the owner email.\n\n**Do not make this hourly.** Once a day is what keeps it inside the Airtable free allowance."
+      }
+    },
+    {
+      "name": "Sticky Note - s-angle",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        120,
+        -360
+      ],
+      "parameters": {
+        "width": 420,
+        "height": 240,
+        "color": 7,
+        "content": "## A different angle each time\n\nThe same nudge four times is spam. So the touch number decides the angle:\n\n1. a short friendly check-in\n2. answer the objection they probably have\n3. offer to talk it through\n4. offer a smaller starting option - then stop\n\nNobody gets a fifth."
+      }
+    },
+    {
+      "name": "Sticky Note - s-ai",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        560,
+        -360
+      ],
+      "parameters": {
+        "width": 480,
+        "height": 260,
+        "color": 5,
+        "content": "## The writing, with a safety net\n\nGemini writes the message so it sounds like a person rather than a mailmerge.\n\n**If Gemini is down or rate-limited** the workflow does NOT stop. It drops to a plain pre-written version of the same angle and sends that instead.\n\nA quote still gets chased on a bad Gemini day - it just reads a little flatter."
+      }
+    },
+    {
+      "name": "Sticky Note - s-after",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        -360
+      ],
+      "parameters": {
+        "width": 460,
+        "height": 240,
+        "color": 3,
+        "content": "## After the send\n\nThe register is updated first (touch count, next due date), then the message is copied into the Touch Log so you can read back exactly what was sent and when.\n\nIf the email itself fails you get an alert, and the quote keeps its old due date so it is retried tomorrow rather than silently skipped."
+      }
+    },
+    {
+      "name": "Run Once Each Morning",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -120,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Find Quotes Due a Chase",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "position": [
+        100,
+        0
+      ],
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_QUOTE_BASE",
+          "cachedResultName": "Quote Follow-Up"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_QUOTES",
+          "cachedResultName": "Quotes"
+        },
+        "filterByFormula": "AND({Status} = 'Open', NOT({Opted Out}), {Touches Sent} < 4, OR(IS_BEFORE({Next Chase Due}, TODAY()), IS_SAME({Next Chase Due}, TODAY(), 'day')))",
+        "options": {}
+      }
+    },
+    {
+      "name": "Alert Owner - Register Read Failed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        100,
+        220
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "Quote chaser could not read the register",
+        "emailType": "text",
+        "message": "=Today's quote chase did not run - Airtable would not return the register.\n\nWhat Airtable said: {{ JSON.stringify($json.error || $json) }}\n\nMost common cause: the access token has no scope on this base. Airtable returns an empty list rather than an error when that happens, so check the token first.\n\nNothing was sent. It will try again tomorrow morning.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Loop Over Due Quotes",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "name": "Pick Chase Angle",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        560,
+        100
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "record_id",
+              "type": "string",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "id": "a2",
+              "name": "client_name",
+              "type": "string",
+              "value": "={{ $json['Client Name'] }}"
+            },
+            {
+              "id": "a3",
+              "name": "client_email",
+              "type": "string",
+              "value": "={{ $json['Client Email'] }}"
+            },
+            {
+              "id": "a4",
+              "name": "owner_email",
+              "type": "string",
+              "value": "={{ $json['Owner Email'] || 'you@example.com' }}"
+            },
+            {
+              "id": "a5",
+              "name": "quote_description",
+              "type": "string",
+              "value": "={{ $json['Quote Description'] }}"
+            },
+            {
+              "id": "a6",
+              "name": "quote_value",
+              "type": "string",
+              "value": "={{ $json['Quote Value'] }}"
+            },
+            {
+              "id": "a7",
+              "name": "date_sent",
+              "type": "string",
+              "value": "={{ $json['Date Sent'] }}"
+            },
+            {
+              "id": "a8",
+              "name": "days_since_sent",
+              "type": "number",
+              "value": "={{ $json['Date Sent'] ? Math.round($now.diff(DateTime.fromISO($json['Date Sent']), 'days').days) : 0 }}"
+            },
+            {
+              "id": "a9",
+              "name": "touch_number",
+              "type": "number",
+              "value": "={{ ($json['Touches Sent'] || 0) + 1 }}"
+            },
+            {
+              "id": "a10",
+              "name": "angle",
+              "type": "string",
+              "value": "={{ ({1:'a short friendly check-in that simply asks if they have had a chance to look',2:'answer the objection they most likely have - usually price, timing, or needing to discuss it with someone else - without claiming to know which one it is',3:'offer to talk it through on a quick call, and suggest two concrete times',4:'a final message offering a smaller starting option, and saying plainly that this is the last time you will chase'})[($json['Touches Sent'] || 0) + 1] }}"
+            },
+            {
+              "id": "a11",
+              "name": "next_interval_days",
+              "type": "number",
+              "value": "={{ ({1:4, 2:7, 3:14, 4:0})[($json['Touches Sent'] || 0) + 1] }}"
+            },
+            {
+              "id": "a12",
+              "name": "is_final",
+              "type": "boolean",
+              "value": "={{ (($json['Touches Sent'] || 0) + 1) >= 4 }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Gemini - Chase Copywriter",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "retryOnFail": false,
+      "position": [
+        700,
+        340
+      ],
+      "parameters": {
+        "modelName": "models/gemini-3.7-flash",
+        "options": {}
+      }
+    },
+    {
+      "name": "Chase Message Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        880,
+        340
+      ],
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"subject\": {\n      \"type\": \"string\",\n      \"description\": \"Email subject line. Under 60 characters. No exclamation marks. Must not start with Re:\"\n    },\n    \"body\": {\n      \"type\": \"string\",\n      \"description\": \"The email body as plain text. Under 120 words. Signed off with a first name only, no company signature block.\"\n    }\n  },\n  \"required\": [\n    \"subject\",\n    \"body\"\n  ]\n}"
+      }
+    },
+    {
+      "name": "Write the Follow-Up",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 20000,
+      "onError": "continueErrorOutput",
+      "position": [
+        780,
+        100
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Write follow-up number {{ $json.touch_number }} for this quote.\n\nClient name: {{ $json.client_name }}\nWhat was quoted: {{ $json.quote_description }}\nValue: {{ $json.quote_value }}\nSent {{ $json.days_since_sent }} days ago\n\nThe angle for this message: {{ $json.angle }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You write short follow-up emails on behalf of a small business owner chasing a quote the customer has not replied to.\n\nRules you never break:\n- Write like one busy person emailing another. No marketing language, no 'I hope this email finds you well', no 'just circling back', no exclamation marks.\n- Under 120 words. Shorter is better.\n- Never invent a discount, a deadline, a price, or any detail you were not given.\n- Never imply you have spoken to them since the quote went out.\n- Never guilt them for not replying.\n- End with one clear thing to do, phrased as a question they can answer in one line.\n- Sign off with a first name only. If you were not given one, end without a signature.\n- The angle you are given is the whole point of this message. Follow it."
+        }
+      }
+    },
+    {
+      "name": "Use AI Copy",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1080,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ $json.output?.subject || $json.subject }}"
+            },
+            {
+              "id": "a2",
+              "name": "body",
+              "type": "string",
+              "value": "={{ $json.output?.body || $json.body }}"
+            },
+            {
+              "id": "a3",
+              "name": "copy_source",
+              "type": "string",
+              "value": "gemini"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Use Fallback Copy",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1080,
+        240
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ 'Following up on your quote - ' + $('Pick Chase Angle').item.json.quote_description }}"
+            },
+            {
+              "id": "a2",
+              "name": "body",
+              "type": "string",
+              "value": "={{ ({1:'Hi ' + $('Pick Chase Angle').item.json.client_name + ',\\n\\nJust checking you got the quote for ' + $('Pick Chase Angle').item.json.quote_description + '. Any questions on it?\\n\\nHappy to go through anything that is not clear.', 2:'Hi ' + $('Pick Chase Angle').item.json.client_name + ',\\n\\nFollowing up on the quote for ' + $('Pick Chase Angle').item.json.quote_description + '. If the price or the timing is the sticking point, tell me and I will see what I can do.\\n\\nWhat is holding it up?', 3:'Hi ' + $('Pick Chase Angle').item.json.client_name + ',\\n\\nEasier to talk this one through than email it. Are you around for ten minutes this week?\\n\\nHappy to work around you.', 4:'Hi ' + $('Pick Chase Angle').item.json.client_name + ',\\n\\nLast one from me on this. If the full job is too much right now, we can start with a smaller piece of it instead.\\n\\nIf the timing is just wrong, no problem at all - say the word and I will leave it there.'})[$('Pick Chase Angle').item.json.touch_number] }}"
+            },
+            {
+              "id": "a3",
+              "name": "copy_source",
+              "type": "string",
+              "value": "fallback-template"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Send Follow-Up Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "position": [
+        1320,
+        100
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Pick Chase Angle').item.json.client_email }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Update Quote After Send",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_QUOTE_BASE",
+          "cachedResultName": "Quote Follow-Up"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_QUOTES",
+          "cachedResultName": "Quotes"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Pick Chase Angle').item.json.record_id }}",
+            "Touches Sent": "={{ $('Pick Chase Angle').item.json.touch_number }}",
+            "Last Touch At": "={{ $now.toFormat('yyyy-MM-dd') }}",
+            "Next Chase Due": "={{ $('Pick Chase Angle').item.json.is_final ? '' : $now.plus({ days: $('Pick Chase Angle').item.json.next_interval_days }).toFormat('yyyy-MM-dd') }}",
+            "Last Message Sent": "={{ $('Use AI Copy').isExecuted ? $('Use AI Copy').item.json.body : $('Use Fallback Copy').item.json.body }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Log the Touch",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1780,
+        0
+      ],
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_QUOTE_BASE",
+          "cachedResultName": "Quote Follow-Up"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_TOUCH_LOG",
+          "cachedResultName": "Touch Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Client Email": "={{ $('Pick Chase Angle').item.json.client_email }}",
+            "Client Name": "={{ $('Pick Chase Angle').item.json.client_name }}",
+            "Touch Number": "={{ $('Pick Chase Angle').item.json.touch_number }}",
+            "Angle": "={{ $('Pick Chase Angle').item.json.angle }}",
+            "Sent At": "={{ $now.toISO() }}",
+            "Channel": "Email",
+            "Written By": "={{ $('Use AI Copy').isExecuted ? 'gemini' : 'fallback-template' }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Was That the Last Touch?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2000,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ String($('Pick Chase Angle').item.json.is_final ? 'yes' : '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Mark Quote as Stopped",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2220,
+        -140
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_QUOTE_BASE",
+          "cachedResultName": "Quote Follow-Up"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_QUOTES",
+          "cachedResultName": "Quotes"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Pick Chase Angle').item.json.record_id }}",
+            "Status": "Stopped",
+            "Outcome Notes": "={{ 'Chased 4 times with no reply. Sequence ended ' + $now.toFormat('yyyy-MM-dd') + '.' }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Tell Owner the Chase Ended",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2440,
+        -140
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Pick Chase Angle').item.json.owner_email }}",
+        "subject": "=Chase finished with no reply: {{ $('Pick Chase Angle').item.json.client_name }}",
+        "emailType": "text",
+        "message": "={{ $('Pick Chase Angle').item.json.client_name }} has now been chased 4 times about \"{{ $('Pick Chase Angle').item.json.quote_description }}\" ({{ $('Pick Chase Angle').item.json.quote_value }}) and has not replied.\n\nThe automatic chasing has stopped - they will not be emailed again.\n\nThe quote is marked Stopped in the register. If you want one more go yourself, now is the moment.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Alert Owner - Send Failed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1560,
+        320
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "=Follow-up did not send: {{ $('Pick Chase Angle').item.json.client_name }}",
+        "emailType": "text",
+        "message": "=A quote follow-up failed to send.\n\nClient: {{ $('Pick Chase Angle').item.json.client_name }} ({{ $('Pick Chase Angle').item.json.client_email }})\nTouch number: {{ $('Pick Chase Angle').item.json.touch_number }}\n\nWhat went wrong: {{ JSON.stringify($json.error || $json) }}\n\nThe register was deliberately left untouched, so this quote gets picked up again tomorrow morning rather than skipped.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Build Run Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        560,
+        -180
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "chased_count",
+              "type": "number",
+              "value": "={{ $input.all().length }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Send Owner the Daily Summary",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        780,
+        -180
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "=Quote chaser: {{ $json.chased_count }} followed up today",
+        "emailType": "text",
+        "message": "=Today's quote chase is done.\n\nQuotes followed up: {{ $json.chased_count }}\n\nOpen the register to see who is still live and who has gone cold.",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Run Once Each Morning": {
+      "main": [
+        [
+          {
+            "node": "Find Quotes Due a Chase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Quotes Due a Chase": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Due Quotes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Owner - Register Read Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Due Quotes": {
+      "main": [
+        [
+          {
+            "node": "Build Run Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pick Chase Angle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Run Summary": {
+      "main": [
+        [
+          {
+            "node": "Send Owner the Daily Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Chase Angle": {
+      "main": [
+        [
+          {
+            "node": "Write the Follow-Up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Chase Copywriter": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Write the Follow-Up",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chase Message Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Write the Follow-Up",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the Follow-Up": {
+      "main": [
+        [
+          {
+            "node": "Use AI Copy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Use Fallback Copy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use AI Copy": {
+      "main": [
+        [
+          {
+            "node": "Send Follow-Up Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Fallback Copy": {
+      "main": [
+        [
+          {
+            "node": "Send Follow-Up Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Follow-Up Email": {
+      "main": [
+        [
+          {
+            "node": "Update Quote After Send",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Owner - Send Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Owner - Send Failed": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Due Quotes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Quote After Send": {
+      "main": [
+        [
+          {
+            "node": "Log the Touch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log the Touch": {
+      "main": [
+        [
+          {
+            "node": "Was That the Last Touch?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was That the Last Touch?": {
+      "main": [
+        [
+          {
+            "node": "Mark Quote as Stopped",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Due Quotes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Quote as Stopped": {
+      "main": [
+        [
+          {
+            "node": "Tell Owner the Chase Ended",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tell Owner the Chase Ended": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Due Quotes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,1769 @@
+{
+  "name": "Lead Gen Prospecting",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "name": "Weekly Prospecting Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -4400,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "filterByFormula": "{Active}",
+        "options": {}
+      },
+      "name": "Get Active Search Criteria",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        -4016,
+        -192
+      ],
+      "notes": "Deliberately NO onError/continueRegularOutput here, unlike every other Airtable node in this workflow - if this fails, the run should visibly fail rather than silently look identical to 'zero active criteria rows this week'."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "criteria_record_id",
+              "type": "string",
+              "value": "={{$json.id}}"
+            },
+            {
+              "id": "a2",
+              "name": "criteria_name",
+              "type": "string",
+              "value": "={{$json.fields['Criteria Name']}}"
+            },
+            {
+              "id": "a3",
+              "name": "role_keywords",
+              "type": "string",
+              "value": "={{$json.fields['Role/Title Keywords']}}"
+            },
+            {
+              "id": "a4",
+              "name": "industry",
+              "type": "string",
+              "value": "={{$json.fields['Industry']}}"
+            },
+            {
+              "id": "a5",
+              "name": "location",
+              "type": "string",
+              "value": "={{$json.fields['Location']}}"
+            },
+            {
+              "id": "a6",
+              "name": "directory_keywords",
+              "type": "string",
+              "value": "={{$json.fields['Directory Keywords'] || $json.fields['Industry']}}"
+            },
+            {
+              "id": "a7",
+              "name": "max_results",
+              "type": "number",
+              "value": "={{$json.fields['Max Results'] || 15}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Normalize Criteria Row",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -3776,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "Split In Batches - Criteria Rows",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -3520,
+        -208
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "Prospecting Run Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -2496,
+        -864
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$('Normalize Criteria Row').item.json.criteria_record_id}}",
+            "Last Run At": "={{$now.toISO()}}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Update Criteria - Mark Last Run",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        -3184,
+        -192
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google"
+            },
+            {
+              "name": "q",
+              "value": "=site:linkedin.com/in \"{{$('Normalize Criteria Row').item.json.role_keywords}}\" {{$('Normalize Criteria Row').item.json.location}}"
+            },
+            {
+              "name": "num",
+              "value": "={{Math.min($('Normalize Criteria Row').item.json.max_results, 20)}}"
+            },
+            {
+              "name": "location",
+              "value": "={{$('Normalize Criteria Row').item.json.location}}"
+            },
+            {
+              "name": "gl",
+              "value": "={{ $('Normalize Criteria Row').item.json.location.toLowerCase().includes('united kingdom') ? 'uk' : ($('Normalize Criteria Row').item.json.location.toLowerCase().includes('united states') ? 'us' : '') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Search Google - LinkedIn Profiles",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2240,
+        -32
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "First live test (execution 90) got 'Google hasn't returned any results for this query' with a quoted location phrase added on top of site: + quoted role - too restrictive. Dropped the quoted phrase, but execution 94 then showed the real cost: with no location word in the query text at all, SerpApi's location API parameter alone doesn't filter results by location (it only biases where the search is simulated from) - a globally prominent but wrong-location person got pulled in for a London search. Fixed by re-adding location as an UNQUOTED keyword. v2: this lane is now demoted to a low-priority/supplementary source rather than primary - the company-first (Phase B') and editorial-mention (Phase B'') lanes carry more weight, since this one produced usable results in only ~1 of 4 live tests."
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google"
+            },
+            {
+              "name": "q",
+              "value": "={{$('Normalize Criteria Row').item.json.directory_keywords}} {{$('Normalize Criteria Row').item.json.location}} company -site:linkedin.com"
+            },
+            {
+              "name": "num",
+              "value": "={{Math.min($('Normalize Criteria Row').item.json.max_results, 20)}}"
+            },
+            {
+              "name": "location",
+              "value": "={{$('Normalize Criteria Row').item.json.location}}"
+            },
+            {
+              "name": "gl",
+              "value": "={{ $('Normalize Criteria Row').item.json.location.toLowerCase().includes('united kingdom') ? 'uk' : ($('Normalize Criteria Row').item.json.location.toLowerCase().includes('united states') ? 'us' : '') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Search Google - Companies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2240,
+        -432
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "v2: repurposed from a 'directory listing' search into a company-discovery search - aims at real company websites (fed into the new fetch+extract stage) rather than directory listing pages. Query intentionally unquoted (see sibling nodes' notes on execution 90's over-quoting causing zero results)."
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google"
+            },
+            {
+              "name": "q",
+              "value": "={{$('Normalize Criteria Row').item.json.role_keywords}} {{$('Normalize Criteria Row').item.json.location}} (interview OR profile OR \"meet the\" OR award OR speaker) -site:linkedin.com -site:instagram.com -site:tiktok.com -site:facebook.com"
+            },
+            {
+              "name": "num",
+              "value": "={{Math.min($('Normalize Criteria Row').item.json.max_results, 20)}}"
+            },
+            {
+              "name": "location",
+              "value": "={{$('Normalize Criteria Row').item.json.location}}"
+            },
+            {
+              "name": "gl",
+              "value": "={{ $('Normalize Criteria Row').item.json.location.toLowerCase().includes('united kingdom') ? 'uk' : ($('Normalize Criteria Row').item.json.location.toLowerCase().includes('united states') ? 'us' : '') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Search Google - Editorial Mentions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2240,
+        -240
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "v2: repurposed from a generic catch-all into a third-party/editorial-mention search - looks for a named person mentioned by someone other than their own employer (profile pieces, award/speaker listings, association directories). Added to mitigate the gap where a real prospect has a strong public presence but their employer's own site never names them - see plan doc / README for full rationale. gl (country) param added 2026-08-01, same reason as Search Google - Companies. Social platform exclusions added 2026-08-01 after execution 101 matched an irrelevant Instagram Reel purely because it contained the literal phrase 'meet the' - social platforms trend toward influencer content, not genuine third-party business profile pieces."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "t1",
+              "name": "source_type",
+              "type": "string",
+              "value": "LinkedIn"
+            },
+            {
+              "id": "t2",
+              "name": "criteria_record_id",
+              "type": "string",
+              "value": "={{$('Normalize Criteria Row').item.json.criteria_record_id}}"
+            },
+            {
+              "id": "t3",
+              "name": "criteria_name",
+              "type": "string",
+              "value": "={{$('Normalize Criteria Row').item.json.criteria_name}}"
+            },
+            {
+              "id": "t4",
+              "name": "criteria_location",
+              "type": "string",
+              "value": "={{$('Normalize Criteria Row').item.json.location}}"
+            },
+            {
+              "id": "t5",
+              "name": "criteria_max_results",
+              "type": "number",
+              "value": "={{$('Normalize Criteria Row').item.json.max_results}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Tag Source - LinkedIn",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2000,
+        -32
+      ],
+      "notes": "Bakes criteria fields in as literal data (via explicit node reference) before the fan-out/merge, rather than relying on cross-node lookups surviving the Merge node later."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "t1",
+              "name": "source_type",
+              "type": "string",
+              "value": "CompanySite"
+            },
+            {
+              "id": "t2",
+              "name": "criteria_record_id",
+              "type": "string",
+              "value": "={{$('Normalize Criteria Row').item.json.criteria_record_id}}"
+            },
+            {
+              "id": "t3",
+              "name": "criteria_name",
+              "type": "string",
+              "value": "={{$('Normalize Criteria Row').item.json.criteria_name}}"
+            },
+            {
+              "id": "t4",
+              "name": "criteria_location",
+              "type": "string",
+              "value": "={{$('Normalize Criteria Row').item.json.location}}"
+            },
+            {
+              "id": "t5",
+              "name": "criteria_max_results",
+              "type": "number",
+              "value": "={{$('Normalize Criteria Row').item.json.max_results}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Tag Source - Companies",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2000,
+        -432
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "t1",
+              "name": "source_type",
+              "type": "string",
+              "value": "EditorialMention"
+            },
+            {
+              "id": "t2",
+              "name": "criteria_record_id",
+              "type": "string",
+              "value": "={{$('Normalize Criteria Row').item.json.criteria_record_id}}"
+            },
+            {
+              "id": "t3",
+              "name": "criteria_name",
+              "type": "string",
+              "value": "={{$('Normalize Criteria Row').item.json.criteria_name}}"
+            },
+            {
+              "id": "t4",
+              "name": "criteria_location",
+              "type": "string",
+              "value": "={{$('Normalize Criteria Row').item.json.location}}"
+            },
+            {
+              "id": "t5",
+              "name": "criteria_max_results",
+              "type": "number",
+              "value": "={{$('Normalize Criteria Row').item.json.max_results}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Tag Source - Editorial Mentions",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2000,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "organic_results",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "name": "Split Results - LinkedIn",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -1760,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "organic_results",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "name": "Split Results - Directories",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -1760,
+        -432
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "organic_results",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "name": "Split Results - General",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -1760,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "name": "Merge Search Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -1040,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r1",
+              "name": "prospect_source_title",
+              "type": "string",
+              "value": "={{$json.organic_results.title}}"
+            },
+            {
+              "id": "r2",
+              "name": "prospect_source_link",
+              "type": "string",
+              "value": "={{$json.organic_results.link}}"
+            },
+            {
+              "id": "r3",
+              "name": "prospect_source_snippet",
+              "type": "string",
+              "value": "={{$json.organic_results.snippet || ''}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Normalize Search Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -512,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "prospect_source_link",
+        "options": {}
+      },
+      "name": "Remove Duplicate Results",
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": "={{$json.criteria_max_results || 15}}"
+      },
+      "name": "Limit Results Per Criteria Row",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        256,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=New search result to evaluate (source: {{$json.source_type}}, from criteria '{{$json.criteria_name}}', target location: {{$json.criteria_location}}):\nTitle: {{$json.prospect_source_title}}\nURL: {{$json.prospect_source_link}}\nSnippet: {{$json.prospect_source_snippet}}\n\nFull page text (from visiting the URL above, truncated to the first ~1200 characters - may be empty if the page could not be fetched):\n{{ ($json.page_text || '').substring(0, 1200) || '(page could not be fetched or had no readable text)' }}\n\nExtract prospect details per your instructions and produce the required structured JSON output.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a lead-prospecting research assistant. You will be given a search result (title, URL, snippet) PLUS the full visible text of the page at that URL, if it could be fetched, plus a target location this search was meant to find prospects in. The source_type tells you what kind of page this is: 'LinkedIn' (a Google-indexed LinkedIn snippet, often thin), 'CompanySite' (a company's own website - look for an About/Team/Leadership section in the page text), or 'EditorialMention' (a third-party page - press/interview/profile/award/directory listing - that names someone independent of their own employer).\n\nThe result may or may not represent a real, relevant business contact. Extract prospect details ONLY when clearly supported by the text - never invent or guess a name, title, or company. Prefer the full page text over the snippet when both are present; the snippet is often too thin to extract from reliably.\n\nTarget audience for this whole system: SMB (small-to-medium business) leadership - founders, owners, directors, and department heads - NOT junior/individual-contributor roles and NOT large-enterprise contacts. Only extract prospect_name if the page ITSELF names a specific individual WITH a title (do not infer someone exists from context - e.g. do not assume 'the founder' is a specific extractable name unless the page states it) - and prefer names whose title matches a founder/owner/director/head-of level role consistent with the criteria's role keywords.\n\nRules:\n- prospect_name: a specific named individual's full name, ONLY if one is identifiable in the title/snippet/page text. LinkedIn results are usually formatted 'FirstName LastName - Title - Company | LinkedIn' - parse that pattern. If the result is a directory listing, a company page with no named leadership, or has no named individual at all, set this to null.\n- prospect_title: the person's job title/role if stated, else null.\n- company_name: the company/organization name if identifiable, else null.\n- company_website: a company website URL if one is visible in the text (the URL itself, if source_type is CompanySite, or a company site mentioned in an EditorialMention page), else null.\n- linkedin_url: the exact URL verbatim, ONLY if source_type is LinkedIn and the URL matches a linkedin.com/in/ profile pattern, else null.\n- location: a location if stated in the snippet or page text, else null.\n- LOCATION CHECK (important): compare the stated location (if any) against the target location given above. If the text clearly places the person/company somewhere unrelated (a different country, or a distant city with no stated connection to the target area), this is very likely the WRONG match for this search - even if they look prominent or authoritative. In that case, still extract what the text says, but set needs_manual_review=true and explain the mismatch in review_reason. Do not silently treat a globally famous but geographically mismatched result as a good match.\n- PLACE-NAME AMBIGUITY (important): some target locations are also common surnames or match unrelated places in other countries (e.g. 'Bristol' is a UK city AND a surname AND several US towns - Bristol, Tennessee/Virginia/Connecticut/Rhode Island; this kind of collision applies to many place names, not just this one). If the target location word's only appearance is inside a person's surname or a company/brand name - not as an actual geographic reference - that is NOT a genuine location match. Check real context instead: an address, a postcode/zip format, a phone number's country code, a currency symbol, or other place names mentioned nearby. If context points to a different country than the target, treat this exactly like a LOCATION CHECK mismatch (needs_manual_review=true), regardless of whether the target location word happens to appear in the text.\n- confidence: your own 0-1 confidence that this result represents a real, useful, LOCATION-APPROPRIATE, SMB-LEADERSHIP-APPROPRIATE prospect for outreach - lower this for a location mismatch, a non-leadership role, or an enterprise-scale company even if the name/title extraction itself is clear.\n- needs_manual_review: true if prospect_name is null, confidence is below 0.5, location clearly mismatches the target, or the result looks unrelated/spam.\n- review_reason: a short explanation when needs_manual_review is true, else empty string.\n\nRespond only with the required JSON output - never fabricate data you cannot support from the given text.",
+          "batching": {
+            "batchSize": 1,
+            "delayBetweenBatches": 15000
+          }
+        }
+      },
+      "name": "Prospect Extraction Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1744,
+        144
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 8000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\"prospect_name\",\"prospect_title\",\"company_name\",\"company_website\",\"linkedin_url\",\"location\",\"confidence\",\"needs_manual_review\",\"review_reason\"],\n  \"properties\": {\n    \"prospect_name\": {\"type\": [\"string\",\"null\"]},\n    \"prospect_title\": {\"type\": [\"string\",\"null\"]},\n    \"company_name\": {\"type\": [\"string\",\"null\"]},\n    \"company_website\": {\"type\": [\"string\",\"null\"]},\n    \"linkedin_url\": {\"type\": [\"string\",\"null\"]},\n    \"location\": {\"type\": [\"string\",\"null\"]},\n    \"confidence\": {\"type\": \"number\", \"minimum\": 0, \"maximum\": 1},\n    \"needs_manual_review\": {\"type\": \"boolean\"},\n    \"review_reason\": {\"type\": \"string\"}\n  }\n}"
+      },
+      "name": "Prospect Extraction Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2128,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "filterByFormula": "={{ ($('Prospect Extraction Agent').item.json.output && $('Prospect Extraction Agent').item.json.output.linkedin_url) ? (\"OR({Source URL} = '\" + $('Limit Results Per Criteria Row').item.json.prospect_source_link + \"', {LinkedIn URL} = '\" + $('Prospect Extraction Agent').item.json.output.linkedin_url + \"')\") : (\"{Source URL} = '\" + $('Limit Results Per Criteria Row').item.json.prospect_source_link + \"'\") }}",
+        "returnAll": false,
+        "limit": 1,
+        "options": {}
+      },
+      "name": "Dedup Check - Existing Prospect",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        2208,
+        144
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Primary dedup key (Source URL) is captured before the Agent ran, so an Agent failure can't corrupt this check. LinkedIn URL is OR'd in only when the Agent actually produced one - never blindly OR'd against a possibly-blank field. alwaysOutputData=true because Airtable Search returns zero items (not one empty item) on no match, which would otherwise starve the downstream IF node."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.id}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Duplicate Prospect Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2496,
+        144
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "Duplicate Prospect - Skipped",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2672,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 3,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$('Normalize Agent Output').item.json.needs_manual_review}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{$('Normalize Agent Output').item.json.confidence}}",
+              "rightValue": 0.5,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            },
+            {
+              "id": "c3",
+              "leftValue": "={{$('Normalize Agent Output').item.json.prospect_name}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "name": "Needs Manual Review? (Prospect)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2864,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Prospect Name": "={{$('Normalize Agent Output').item.json.prospect_name}}",
+            "Title/Role": "={{$('Normalize Agent Output').item.json.prospect_title}}",
+            "Company Name": "={{$('Normalize Agent Output').item.json.company_name}}",
+            "Company Website": "={{$('Normalize Agent Output').item.json.company_website}}",
+            "LinkedIn URL": "={{$('Normalize Agent Output').item.json.linkedin_url}}",
+            "Location": "={{$('Normalize Agent Output').item.json.location || $('Limit Results Per Criteria Row').item.json.criteria_location}}",
+            "Source Type": "={{$('Limit Results Per Criteria Row').item.json.source_type}}",
+            "Source URL": "={{$('Limit Results Per Criteria Row').item.json.prospect_source_link}}",
+            "Source Snippet": "={{$('Limit Results Per Criteria Row').item.json.prospect_source_snippet}}",
+            "Search Criteria": "={{ [$('Limit Results Per Criteria Row').item.json.criteria_record_id] }}",
+            "Enrichment Status": "Not Started",
+            "Status": "Needs Review",
+            "Needs Review": true,
+            "Review Reason": "={{$('Normalize Agent Output').item.json.review_reason}}",
+            "AI Confidence": "={{$('Normalize Agent Output').item.json.confidence}}"
+          }
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "name": "Create Prospect - Needs Review",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        4096,
+        -480
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Skips Dropcontact entirely - no reliable name/company to enrich against, and it saves enrichment API credits."
+    },
+    {
+      "parameters": {
+        "simplify": true,
+        "additionalFields": {
+          "company": "={{$('Prospect Extraction Agent').item.json.output.company_name}}",
+          "full_name": "={{$('Prospect Extraction Agent').item.json.output.prospect_name}}",
+          "linkedin": "={{$('Prospect Extraction Agent').item.json.output.linkedin_url}}",
+          "website": "={{$('Prospect Extraction Agent').item.json.output.company_website}}"
+        },
+        "options": {}
+      },
+      "name": "Enrich Contact - Dropcontact",
+      "type": "n8n-nodes-base.dropcontact",
+      "typeVersion": 1,
+      "position": [
+        4560,
+        688
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "simplify=true returns a request_id immediately rather than waiting per-item; a shared Wait node downstream pays the async delay once per batch, not once per prospect. v2: this now runs as a fallback after Hunter's emailFinder comes up empty, not as the only enrichment source - see Map Enrichment Result notes."
+    },
+    {
+      "parameters": {
+        "amount": 120
+      },
+      "name": "Wait - Dropcontact Processing",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        4752,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "fetchRequest",
+        "requestId": "={{$json.request_id}}"
+      },
+      "name": "Fetch Enrichment Result",
+      "type": "n8n-nodes-base.dropcontact",
+      "typeVersion": 1,
+      "position": [
+        4944,
+        688
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Dropcontact's real response shape (confirmed live, execution 93): a flat object at the top level ($json.email as an array of {email, qualification}), not the raw API's documented {data:[...]} wrapper - n8n's node unwraps data[0] before returning it."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e1",
+              "name": "enriched_email",
+              "type": "string",
+              "value": "={{ (Array.isArray($json.email) && $json.email[0] && $json.email[0].email) || (typeof $json.email === 'string' && $json.email) || ($json.data && $json.data[0] && $json.data[0].email && $json.data[0].email[0] && $json.data[0].email[0].email) || ($json.data && $json.data[0] && $json.data[0].email) || '' }}"
+            },
+            {
+              "id": "e2",
+              "name": "enriched_email_qualification",
+              "type": "string",
+              "value": "={{ (Array.isArray($json.email) && $json.email[0] && $json.email[0].qualification) || ($json.data && $json.data[0] && $json.data[0].email && $json.data[0].email[0] && $json.data[0].email[0].qualification) || '' }}"
+            },
+            {
+              "id": "e3",
+              "name": "enriched_phone",
+              "type": "string",
+              "value": "={{ $json.phone || ($json.data && $json.data[0] && $json.data[0].phone) || '' }}"
+            },
+            {
+              "id": "e4",
+              "name": "enrichment_success",
+              "type": "boolean",
+              "value": "={{ !!(Array.isArray($json.email) && $json.email.length) || !!($json.data && $json.data[0] && $json.data[0].email && $json.data[0].email.length) }}"
+            },
+            {
+              "id": "e5",
+              "name": "enrichment_source",
+              "type": "string",
+              "value": "Dropcontact"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Map Enrichment Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5168,
+        688
+      ],
+      "notes": "Defensive optional-chaining fallbacks because Dropcontact's real response shape is unverified - a wrong guess degrades to 'Failed/No Email Found' + Needs Review, not a crash. Raw Enrichment Response on the Airtable row preserves the untouched JSON for debugging."
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Prospect Name": "={{$('Normalize Agent Output').item.json.prospect_name}}",
+            "Title/Role": "={{$('Normalize Agent Output').item.json.prospect_title}}",
+            "Company Name": "={{$('Normalize Agent Output').item.json.company_name}}",
+            "Company Website": "={{$('Normalize Agent Output').item.json.company_website}}",
+            "LinkedIn URL": "={{$('Normalize Agent Output').item.json.linkedin_url}}",
+            "Location": "={{$('Normalize Agent Output').item.json.location || $('Limit Results Per Criteria Row').item.json.criteria_location}}",
+            "Source Type": "={{$('Limit Results Per Criteria Row').item.json.source_type}}",
+            "Source URL": "={{$('Limit Results Per Criteria Row').item.json.prospect_source_link}}",
+            "Source Snippet": "={{$('Limit Results Per Criteria Row').item.json.prospect_source_snippet}}",
+            "Search Criteria": "={{ [$('Limit Results Per Criteria Row').item.json.criteria_record_id] }}",
+            "Email": "={{$json.enriched_email}}",
+            "Phone": "={{$json.enriched_phone}}",
+            "Enrichment Status": "={{$json.enrichment_success ? 'Enriched' : 'Failed/No Email Found'}}",
+            "Status": "New",
+            "Needs Review": "={{ !$json.enrichment_success }}",
+            "Review Reason": "={{ !$json.enrichment_success ? 'Dropcontact enrichment did not return a verified email' : '' }}",
+            "AI Confidence": "={{$('Normalize Agent Output').item.json.confidence}}",
+            "Raw Enrichment Response": "={{JSON.stringify($json)}}"
+          }
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "name": "Create Prospect",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        5808,
+        960
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "model": "llama-3.1-8b-instant",
+        "options": {}
+      },
+      "name": "Groq Chat Model (Prospecting)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1472,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "Split In Batches - Prospects",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        864,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.prospect_source_link}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "name": "Fetch Prospect Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1136,
+        144
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "v2 Phase B2': fetches whichever page SerpApi found (company site or third-party editorial mention) so the AI Agent can read real page text instead of just a 2-line snippet. responseFormat=text forces the raw HTML into $json.data for HTML Extract. Deliberately no auth - these are public third-party pages. onError continues gracefully since many sites will block bots or timeout; the Agent's existing 'null the name rather than guess' rule already handles a missing/thin page cleanly."
+    },
+    {
+      "parameters": {
+        "extractionValues": {
+          "values": [
+            {
+              "key": "page_text",
+              "cssSelector": "body"
+            }
+          ]
+        },
+        "options": {
+          "trimValues": true
+        }
+      },
+      "name": "Parse Page Text",
+      "type": "n8n-nodes-base.htmlExtract",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        144
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "v2 Phase B2': pulls visible body text from the fetched page. If the fetch failed or returned no HTML, this degrades to empty/missing page_text rather than erroring - the Agent already treats missing input as 'do not guess a name'. Known limitation: body-text extraction can include script/style noise and won't handle JS-rendered sites - flagged as an open risk to verify on first live test (Firecrawl is the fallback upgrade if this proves too noisy)."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$('Prospect Extraction Agent').item.json.output.company_website}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Has Company Domain?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3328,
+        656
+      ],
+      "notes": "v2 Phase E': Hunter's emailFinder needs a domain to work with; if the AI Agent never found a company_website (common for an EditorialMention hit with no company site mentioned), skip straight to Dropcontact rather than calling Hunter with an empty domain."
+    },
+    {
+      "parameters": {
+        "operation": "emailFinder",
+        "domain": "={{ ($('Prospect Extraction Agent').item.json.output.company_website || '').replace(/^https?:\\/\\//, '').replace(/^www\\./, '').split('/')[0] }}",
+        "firstname": "={{ $('Prospect Extraction Agent').item.json.output.prospect_name.trim().split(/\\s+/)[0] || '' }}",
+        "lastname": "={{ $('Prospect Extraction Agent').item.json.output.prospect_name.trim().split(/\\s+/).slice(1).join(' ') || $('Prospect Extraction Agent').item.json.output.prospect_name.trim().split(/\\s+/)[0] || '' }}"
+      },
+      "name": "Enrich Contact - Hunter",
+      "type": "n8n-nodes-base.hunter",
+      "typeVersion": 1,
+      "position": [
+        3744,
+        464
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "v2 Phase E': runs first now that the pipeline reliably produces a real company domain (Dropcontact had none to work with in v1). Hunter's real response shape is unverified until a live execution is inspected - see Map Hunter Result notes for the defensive dual-shape guess."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !!($json.email) || !!($json.data && $json.data.email) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Hunter Found Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4160,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "h1",
+              "name": "enriched_email",
+              "type": "string",
+              "value": "={{ $json.email || ($json.data && $json.data.email) || '' }}"
+            },
+            {
+              "id": "h2",
+              "name": "enriched_email_qualification",
+              "type": "string",
+              "value": "={{ ($json.verification && $json.verification.status) || ($json.data && $json.data.verification && $json.data.verification.status) || '' }}"
+            },
+            {
+              "id": "h3",
+              "name": "enriched_phone",
+              "type": "string",
+              "value": "={{ $json.phone_number || ($json.data && $json.data.phone_number) || '' }}"
+            },
+            {
+              "id": "h4",
+              "name": "enrichment_success",
+              "type": "boolean",
+              "value": "={{ !!($json.email) || !!($json.data && $json.data.email) }}"
+            },
+            {
+              "id": "h5",
+              "name": "enrichment_source",
+              "type": "string",
+              "value": "Hunter"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Map Hunter Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5248,
+        384
+      ],
+      "notes": "v2 Phase E': Hunter's real response shape (flattened vs nested under 'data') is unverified until a live execution is inspected - both are checked defensively, same discipline as Map Enrichment Result's Dropcontact guess. Uses the same field names (enriched_email, enriched_phone, enrichment_success) as Map Enrichment Result so Create Prospect works identically regardless of which provider found the email. enrichment_source is for execution-log debugging only, not mapped to an Airtable column."
+    },
+    {
+      "name": "Limit - Companies Lane",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        720,
+        32
+      ],
+      "parameters": {
+        "maxItems": "={{ Math.ceil(($json.criteria_max_results || 15) * 0.4) }}"
+      },
+      "notes": "v2 fix: without a per-lane cap, whichever lane is ordered first into Merge Search Results wins 100% of the post-merge quota (confirmed live, executions 98-100) - each lane must be pre-limited so all 3 always contribute. Companies gets 40% of Max Results."
+    },
+    {
+      "name": "Limit - Editorial Lane",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        720,
+        352
+      ],
+      "parameters": {
+        "maxItems": "={{ Math.ceil(($json.criteria_max_results || 15) * 0.4) }}"
+      },
+      "notes": "v2 fix: same reasoning as Limit - Companies Lane. Editorial Mentions gets 40% of Max Results."
+    },
+    {
+      "name": "Limit - LinkedIn Lane",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        720,
+        -288
+      ],
+      "parameters": {
+        "maxItems": "={{ Math.max(1, Math.floor(($json.criteria_max_results || 15) * 0.2)) }}"
+      },
+      "notes": "v2 fix: same reasoning as Limit - Companies Lane. LinkedIn is demoted to 20% of Max Results (minimum 1) rather than 0%, since it occasionally does contribute a real find."
+    },
+    {
+      "name": "Normalize Agent Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1976,
+        144
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "ai_call_succeeded",
+              "type": "boolean",
+              "value": "={{ $json.output ? true : false }}"
+            },
+            {
+              "id": "a2",
+              "name": "prospect_name",
+              "type": "string",
+              "value": "={{ $json.output ? ($json.output.prospect_name || '') : '' }}"
+            },
+            {
+              "id": "a3",
+              "name": "prospect_title",
+              "type": "string",
+              "value": "={{ $json.output ? ($json.output.prospect_title || '') : '' }}"
+            },
+            {
+              "id": "a4",
+              "name": "company_name",
+              "type": "string",
+              "value": "={{ $json.output ? ($json.output.company_name || '') : '' }}"
+            },
+            {
+              "id": "a5",
+              "name": "company_website",
+              "type": "string",
+              "value": "={{ $json.output ? ($json.output.company_website || '') : '' }}"
+            },
+            {
+              "id": "a6",
+              "name": "linkedin_url",
+              "type": "string",
+              "value": "={{ $json.output ? ($json.output.linkedin_url || '') : '' }}"
+            },
+            {
+              "id": "a7",
+              "name": "location",
+              "type": "string",
+              "value": "={{ $json.output ? ($json.output.location || '') : '' }}"
+            },
+            {
+              "id": "a8",
+              "name": "confidence",
+              "type": "number",
+              "value": "={{ $json.output ? ($json.output.confidence != null ? $json.output.confidence : 0) : 0 }}"
+            },
+            {
+              "id": "a9",
+              "name": "needs_manual_review",
+              "type": "boolean",
+              "value": "={{ $json.output ? !!$json.output.needs_manual_review : true }}"
+            },
+            {
+              "id": "a10",
+              "name": "review_reason",
+              "type": "string",
+              "value": "={{ $json.output ? ($json.output.review_reason || 'Low confidence / no identifiable prospect name') : 'AI extraction call failed (rate-limited or errored) - not evaluated, review source manually' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "notes": "Guards against Prospect Extraction Agent's output being entirely missing (Groq call failed all retries - confirmed live in execution 102). Without this, every downstream .output.X read silently resolved blank instead of surfacing the failure."
+    }
+  ],
+  "connections": {
+    "Weekly Prospecting Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Active Search Criteria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Search Criteria": {
+      "main": [
+        [
+          {
+            "node": "Normalize Criteria Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Criteria Row": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches - Criteria Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches - Criteria Rows": {
+      "main": [
+        [
+          {
+            "node": "Prospecting Run Complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Criteria - Mark Last Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Criteria - Mark Last Run": {
+      "main": [
+        [
+          {
+            "node": "Search Google - LinkedIn Profiles",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search Google - Companies",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search Google - Editorial Mentions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Google - LinkedIn Profiles": {
+      "main": [
+        [
+          {
+            "node": "Tag Source - LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Google - Companies": {
+      "main": [
+        [
+          {
+            "node": "Tag Source - Companies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Google - Editorial Mentions": {
+      "main": [
+        [
+          {
+            "node": "Tag Source - Editorial Mentions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag Source - LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Split Results - LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag Source - Companies": {
+      "main": [
+        [
+          {
+            "node": "Split Results - Directories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag Source - Editorial Mentions": {
+      "main": [
+        [
+          {
+            "node": "Split Results - General",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Search Results": {
+      "main": [
+        [
+          {
+            "node": "Normalize Search Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Search Result": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicate Results": {
+      "main": [
+        [
+          {
+            "node": "Limit Results Per Criteria Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prospect Extraction Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Prospect Extraction Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup Check - Existing Prospect": {
+      "main": [
+        [
+          {
+            "node": "Duplicate Prospect Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicate Prospect Found?": {
+      "main": [
+        [
+          {
+            "node": "Duplicate Prospect - Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs Manual Review? (Prospect)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Manual Review? (Prospect)": {
+      "main": [
+        [
+          {
+            "node": "Create Prospect - Needs Review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Has Company Domain?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Contact - Dropcontact": {
+      "main": [
+        [
+          {
+            "node": "Wait - Dropcontact Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait - Dropcontact Processing": {
+      "main": [
+        [
+          {
+            "node": "Fetch Enrichment Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Enrichment Result": {
+      "main": [
+        [
+          {
+            "node": "Map Enrichment Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Enrichment Result": {
+      "main": [
+        [
+          {
+            "node": "Create Prospect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model (Prospecting)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Prospect Extraction Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit Results Per Criteria Row": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches - Prospects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches - Prospects": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches - Criteria Rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Prospect Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicate Prospect - Skipped": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches - Prospects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Prospect - Needs Review": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches - Prospects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Prospect": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches - Prospects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Prospect Page": {
+      "main": [
+        [
+          {
+            "node": "Parse Page Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Page Text": {
+      "main": [
+        [
+          {
+            "node": "Prospect Extraction Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Company Domain?": {
+      "main": [
+        [
+          {
+            "node": "Enrich Contact - Hunter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enrich Contact - Dropcontact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Contact - Hunter": {
+      "main": [
+        [
+          {
+            "node": "Hunter Found Email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hunter Found Email?": {
+      "main": [
+        [
+          {
+            "node": "Map Hunter Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enrich Contact - Dropcontact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Hunter Result": {
+      "main": [
+        [
+          {
+            "node": "Create Prospect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Results - Directories": {
+      "main": [
+        [
+          {
+            "node": "Limit - Companies Lane",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Results - General": {
+      "main": [
+        [
+          {
+            "node": "Limit - Editorial Lane",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Results - LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Limit - LinkedIn Lane",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit - Companies Lane": {
+      "main": [
+        [
+          {
+            "node": "Merge Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit - Editorial Lane": {
+      "main": [
+        [
+          {
+            "node": "Merge Search Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Limit - LinkedIn Lane": {
+      "main": [
+        [
+          {
+            "node": "Merge Search Results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Prospect Extraction Agent": {
+      "main": [
+        [
+          {
+            "node": "Normalize Agent Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Agent Output": {
+      "main": [
+        [
+          {
+            "node": "Dedup Check - Existing Prospect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,998 @@
+{
+  "name": "Tally Lead Intake (Agency)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tally-lead-intake",
+        "options": {
+          "allowedOrigins": "https://your-website.example.com"
+        }
+      },
+      "name": "Tally Form Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -416,
+        304
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Point Tally's 'Webhook' integration at this node's Production URL. As of 2026-07-21, also receiving flat-JSON POSTs from the new custom website (https://your-website.example.com) in parallel. CORS locked down 2026-07-28 to that exact origin now that the site is live (was '*' during local testing)."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "email",
+              "type": "string",
+              "value": "={{ $json.email }}"
+            },
+            {
+              "id": "a2",
+              "name": "full_name",
+              "type": "string",
+              "value": "={{ $json.full_name }}"
+            },
+            {
+              "id": "a3",
+              "name": "company_size",
+              "type": "string",
+              "value": "={{ $json.company_size }}"
+            },
+            {
+              "id": "a4",
+              "name": "budget",
+              "type": "string",
+              "value": "={{ $json.budget }}"
+            },
+            {
+              "id": "a5",
+              "name": "problem_description",
+              "type": "string",
+              "value": "={{ $json.problem_description }}"
+            },
+            {
+              "id": "a6",
+              "name": "submitted_at",
+              "type": "string",
+              "value": "={{ $json.submitted_at }}"
+            },
+            {
+              "id": "a7",
+              "name": "source",
+              "type": "string",
+              "value": "={{ $json.source }}"
+            },
+            {
+              "id": "a8",
+              "name": "lead_id",
+              "type": "string",
+              "value": "={{ $json.lead_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Normalize Lead Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        304
+      ],
+      "notes": "Updated 2026-07-28: this node is now the convergence point after shape-specific mapping ('Map Tally Fields' / 'Map Website Fields' upstream via 'Detect Payload Shape'), so it just passes the already-canonical fields through. Kept this node's name/id unchanged since every downstream node references it by name via $('Normalize Lead Data')."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.email}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{$json.email}}",
+              "rightValue": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Has Required Fields?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        416,
+        304
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "Log Invalid Submission",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        336,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=New lead submission:\nName: {{$json.full_name}}\nEmail: {{$json.email}}\nCompany size: {{$json.company_size}}\nBudget: {{$json.budget}}\nProblem description: {{$json.problem_description}}\n\nAnalyze this lead per your instructions and produce the required structured output.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are the lead-analysis assistant for an AI automation agency. For every inbound lead you must:\n1. Call the Services & KB Retriever tool at least once to check the agency's knowledge base for information relevant to the lead's stated problem, industry, or budget before finalizing your analysis. Always also specifically check the knowledge base for any current promotions, discounts, or first-client offers (e.g. a first-meeting or first-client discount) and mention them in the customer email when inviting them to book a meeting, if the knowledge base confirms one exists.\n2. Write a concise 2-4 sentence summary of the lead and their need.\n3. Score urgency 1-10 based on how time-sensitive their stated need appears.\n4. Classify overall priority as High, Medium, or Low by weighing: urgency, stated budget, company size, long-term relationship potential, and overall profitability to the agency. Larger budgets, larger companies, clear long-term potential, and high urgency push toward High; vague, low-budget, very small-scope enquiries push toward Low.\n5. Recommend one concrete next action for the business owner.\n6. Recommend which of the agency's services (from the knowledge base) are most relevant, do not invent services that aren't in the knowledge base.\n7. Draft a warm, specific, non-generic customer-facing email (subject + body) referencing their stated problem, introducing the most relevant service(s), mentioning any active promotion/discount found in the knowledge base, and inviting them to book a meeting at https://cal.com/your-username. Sign off as 'The AI Automation Company Team', never use a placeholder like '[Your Name]' since no individual signs these emails.\n8. Honestly self-assess your confidence (0-1). If you cannot confidently understand the enquiry, OR the knowledge-base tool returned nothing relevant, set needs_manual_review=true, lower confidence accordingly, and explain why in review_reason. Never fabricate knowledge-base content the tool did not return."
+        }
+      },
+      "name": "Lead Analysis Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        944,
+        288
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "model": {
+          "mode": "id",
+          "value": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        944,
+        704
+      ],
+      "notes": "Attach OpenAI API credential before activating."
+    },
+    {
+      "parameters": {
+        "pineconeIndex": {
+          "mode": "id",
+          "value": "agency-kb"
+        },
+        "options": {}
+      },
+      "name": "Services & KB Retriever",
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "typeVersion": 1.3,
+      "position": [
+        704,
+        608
+      ],
+      "notes": "Swap PLACEHOLDER_PINECONE_INDEX_NAME for the real index name (same index used by KB Ingestion workflow) and attach Pinecone API credential."
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "OpenAI Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        704,
+        768
+      ],
+      "notes": "Attach OpenAI API credential before activating."
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\"summary\",\"urgency_score\",\"priority\",\"next_action\",\"confidence\",\"needs_manual_review\",\"review_reason\",\"kb_found_relevant_info\",\"recommended_services\",\"customer_email_subject\",\"customer_email_body\"],\n  \"properties\": {\n    \"summary\": {\"type\": \"string\"},\n    \"urgency_score\": {\"type\": \"number\", \"minimum\": 1, \"maximum\": 10},\n    \"priority\": {\"type\": \"string\", \"enum\": [\"High\",\"Medium\",\"Low\"]},\n    \"next_action\": {\"type\": \"string\"},\n    \"confidence\": {\"type\": \"number\", \"minimum\": 0, \"maximum\": 1},\n    \"needs_manual_review\": {\"type\": \"boolean\"},\n    \"review_reason\": {\"type\": \"string\"},\n    \"kb_found_relevant_info\": {\"type\": \"boolean\"},\n    \"recommended_services\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}},\n    \"customer_email_subject\": {\"type\": \"string\"},\n    \"customer_email_body\": {\"type\": \"string\"}\n  }\n}"
+      },
+      "name": "Lead Analysis Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1312,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.output.needs_manual_review}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{$json.output.confidence}}",
+              "rightValue": 0.6,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            },
+            {
+              "id": "c3",
+              "leftValue": "={{$json.output.kb_found_relevant_info}}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "name": "Needs Manual Review?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1552,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [],
+          "value": {
+            "Timestamp": "={{$('Normalize Lead Data').item.json.submitted_at}}",
+            "Name": "={{$('Normalize Lead Data').item.json.full_name}}",
+            "Email": "={{$('Normalize Lead Data').item.json.email}}",
+            "Company Size": "={{$('Normalize Lead Data').item.json.company_size}}",
+            "Budget": "={{$('Normalize Lead Data').item.json.budget}}",
+            "Problem Description": "={{$('Normalize Lead Data').item.json.problem_description}}",
+            "Intent Score": "={{$json.output.urgency_score}}",
+            "Priority Level": "={{$json.output.priority}}",
+            "Pain Point Summary": "={{$json.output.summary}}",
+            "Drafted Email Response": "={{$json.output.customer_email_body}}",
+            "Gmail Thread ID": "",
+            "Conversation Status": "Needs Manual Review",
+            "Meeting Status": "Not Booked",
+            "Meeting Date/Time": "",
+            "Needs Review": "={{$json.output.needs_manual_review}}",
+            "Review Reason": "={{$json.output.review_reason}}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Append Lead Row - Flagged",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2000,
+        64
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Swap PLACEHOLDER_LEADS_SHEET_ID for the real Spreadsheet ID and attach Google Sheets OAuth2 credential."
+    },
+    {
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=[Review Needed] {{$('Normalize Lead Data').item.json.full_name}} ({{$('Normalize Lead Data').item.json.email}})",
+        "emailType": "text",
+        "message": "=A new lead needs manual review.\n\nName: {{$('Normalize Lead Data').item.json.full_name}}\nEmail: {{$('Normalize Lead Data').item.json.email}}\nCompany size: {{$('Normalize Lead Data').item.json.company_size}}\nBudget: {{$('Normalize Lead Data').item.json.budget}}\nProblem: {{$('Normalize Lead Data').item.json.problem_description}}\n\nReview reason: {{$('Lead Analysis Agent').item.json.output.review_reason}}\nAI confidence: {{$('Lead Analysis Agent').item.json.output.confidence}}\nKB found relevant info: {{$('Lead Analysis Agent').item.json.output.kb_found_relevant_info}}",
+        "options": {}
+      },
+      "name": "Notify Owner - Manual Review Needed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2432,
+        -48
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Replace OWNER_EMAIL_PLACEHOLDER@example.com with the business owner's real inbox address, and attach Gmail OAuth2 credential."
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$('Normalize Lead Data').item.json.email}}",
+        "subject": "=Thanks for reaching out, {{$('Normalize Lead Data').item.json.full_name}}!",
+        "emailType": "text",
+        "message": "=Hi {{$('Normalize Lead Data').item.json.full_name}},\n\nThanks so much for telling us about your project. We've received your submission and someone from our team will personally follow up shortly with next steps.\n\nIn the meantime, feel free to book a time that works for you here: https://cal.com/your-username\n\nTalk soon,\nThe Team",
+        "options": {}
+      },
+      "name": "Send Generic Acknowledgement",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2416,
+        224
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Replace the Cal.com placeholder link with the real booking link. Attach Gmail OAuth2 credential."
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [],
+          "value": {
+            "Email": "={{$('Normalize Lead Data').item.json.email}}",
+            "Gmail Thread ID": "={{$json.threadId}}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Update Thread ID - Flagged",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2688,
+        224
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [],
+          "value": {
+            "Timestamp": "={{$('Normalize Lead Data').item.json.submitted_at}}",
+            "Name": "={{$('Normalize Lead Data').item.json.full_name}}",
+            "Email": "={{$('Normalize Lead Data').item.json.email}}",
+            "Company Size": "={{$('Normalize Lead Data').item.json.company_size}}",
+            "Budget": "={{$('Normalize Lead Data').item.json.budget}}",
+            "Problem Description": "={{$('Normalize Lead Data').item.json.problem_description}}",
+            "Intent Score": "={{$json.output.urgency_score}}",
+            "Priority Level": "={{$json.output.priority}}",
+            "Pain Point Summary": "={{$json.output.summary}}",
+            "Drafted Email Response": "={{$json.output.customer_email_body}}",
+            "Gmail Thread ID": "",
+            "Conversation Status": "New",
+            "Meeting Status": "Not Booked",
+            "Meeting Date/Time": "",
+            "Needs Review": "={{$json.output.needs_manual_review}}",
+            "Review Reason": "={{$json.output.review_reason}}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Append Lead Row - Analyzed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2000,
+        560
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Swap PLACEHOLDER_LEADS_SHEET_ID for the real Spreadsheet ID and attach Google Sheets OAuth2 credential."
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$('Normalize Lead Data').item.json.email}}",
+        "subject": "={{$('Lead Analysis Agent').item.json.output.customer_email_subject}}",
+        "emailType": "text",
+        "message": "={{$('Lead Analysis Agent').item.json.output.customer_email_body}}",
+        "options": {}
+      },
+      "name": "Send Personalized Service Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2400,
+        464
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Attach Gmail OAuth2 credential."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$('Lead Analysis Agent').item.json.output.priority}}",
+              "rightValue": "High",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Priority == High?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2400,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=[High Priority Lead] {{$('Normalize Lead Data').item.json.full_name}} ({{$('Normalize Lead Data').item.json.email}})",
+        "emailType": "text",
+        "message": "=A new HIGH priority lead just came in.\n\nName: {{$('Normalize Lead Data').item.json.full_name}}\nEmail: {{$('Normalize Lead Data').item.json.email}}\nCompany size: {{$('Normalize Lead Data').item.json.company_size}}\nBudget: {{$('Normalize Lead Data').item.json.budget}}\n\nSummary: {{$('Lead Analysis Agent').item.json.output.summary}}\nUrgency: {{$('Lead Analysis Agent').item.json.output.urgency_score}}/10\nRecommended next action: {{$('Lead Analysis Agent').item.json.output.next_action}}",
+        "options": {}
+      },
+      "name": "Notify Owner - High Priority Lead",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2688,
+        720
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Replace OWNER_EMAIL_PLACEHOLDER@example.com with the business owner's real inbox address."
+    },
+    {
+      "parameters": {},
+      "name": "Not High Priority",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2448,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [],
+          "value": {
+            "Email": "={{$('Normalize Lead Data').item.json.email}}",
+            "Gmail Thread ID": "={{$json.threadId}}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Update Thread ID - Analyzed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2656,
+        464
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "description": "the agency's knowledge base of service descriptions, pricing philosophy, and case studies. Whenever you need information relevant to a lead's stated problem, budget, or industry, you should ALWAYS use this. Input should be a fully formed question.",
+        "topK": 5
+      },
+      "name": "KB Vector Store Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ Array.isArray($json.body && $json.body.data && $json.body.data.fields) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Detect Payload Shape",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -192,
+        304
+      ],
+      "notes": "Added 2026-07-28: routes Tally's nested data.fields[] payload vs the website's flat JSON payload to separate mapping nodes, since both currently POST to the same webhook in parallel."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "email",
+              "type": "string",
+              "value": "={{ ((($json.body.data.fields || []).find(f => f.type === 'INPUT_EMAIL') || ($json.body.data.fields || []).find(f => (f.label||'').toLowerCase().includes('email')) || {}).value || '').toString().toLowerCase().trim() || null }}"
+            },
+            {
+              "id": "a2",
+              "name": "full_name",
+              "type": "string",
+              "value": "={{ ((($json.body.data.fields || []).find(f => f.type !== 'DROPDOWN' && f.type !== 'INPUT_EMAIL' && (f.label||'').toLowerCase().includes('name')) || {}).value) || ((($json.body.data.fields || []).find(f => f.type === 'INPUT_EMAIL') || {}).value || '').split('@')[0] || 'there' }}"
+            },
+            {
+              "id": "a3",
+              "name": "company_size",
+              "type": "string",
+              "value": "={{ (() => { const fields = $json.body.data.fields || []; const f = fields.find(fx => fx.type === 'DROPDOWN' && /company|team|size|people|employee/i.test(fx.label||'')); if (!f) return null; const sel = (f.options||[]).filter(o => (f.value||[]).includes(o.id)).map(o => o.text); return sel.length ? sel.join(', ') : (f.value||[]).join(', '); })() }}"
+            },
+            {
+              "id": "a4",
+              "name": "budget",
+              "type": "string",
+              "value": "={{ (() => { const fields = $json.body.data.fields || []; const f = fields.find(fx => fx.type === 'DROPDOWN' && /budget|price|spend|invest/i.test(fx.label||'')); if (!f) return null; const sel = (f.options||[]).filter(o => (f.value||[]).includes(o.id)).map(o => o.text); return sel.length ? sel.join(', ') : (f.value||[]).join(', '); })() }}"
+            },
+            {
+              "id": "a5",
+              "name": "problem_description",
+              "type": "string",
+              "value": "={{ (() => { const fields = $json.body.data.fields || []; const f = fields.find(fx => fx.type === 'TEXTAREA') || fields.find(fx => /problem|help|task|challenge|need|describe|automat/i.test(fx.label||'')); return f ? f.value : null; })() }}"
+            },
+            {
+              "id": "a6",
+              "name": "submitted_at",
+              "type": "string",
+              "value": "={{ ($json.body.data && $json.body.data.createdAt) || $now.toISO() }}"
+            },
+            {
+              "id": "a7",
+              "name": "source",
+              "type": "string",
+              "value": "Tally Form"
+            },
+            {
+              "id": "a8",
+              "name": "lead_id",
+              "type": "string",
+              "value": "={{ ($json.body.data && $json.body.data.submissionId) || ($now.toMillis() + '-' + ((($json.body.data && $json.body.data.fields && $json.body.data.fields[0]) || {}).value || 'lead')) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Map Tally Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        16,
+        128
+      ],
+      "notes": "Restored 2026-07-28 from pre-migration logic: field-matching by Tally field type (INPUT_EMAIL/TEXTAREA/DROPDOWN), label substring as fallback. Handles the shape confirmed live in execution #23 (2026-07-17)."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "email",
+              "type": "string",
+              "value": "={{ ($json.body.email || '').toString().toLowerCase().trim() || null }}"
+            },
+            {
+              "id": "a2",
+              "name": "full_name",
+              "type": "string",
+              "value": "={{ ($json.body.email || '').split('@')[0] || 'there' }}"
+            },
+            {
+              "id": "a3",
+              "name": "company_size",
+              "type": "string",
+              "value": "={{ $json.body.teamSize || null }}"
+            },
+            {
+              "id": "a4",
+              "name": "budget",
+              "type": "string",
+              "value": "={{ $json.body.budget || null }}"
+            },
+            {
+              "id": "a5",
+              "name": "problem_description",
+              "type": "string",
+              "value": "={{ $json.body.painPoint || null }}"
+            },
+            {
+              "id": "a6",
+              "name": "submitted_at",
+              "type": "string",
+              "value": "={{ $json.body.submittedAt || $now.toISO() }}"
+            },
+            {
+              "id": "a7",
+              "name": "source",
+              "type": "string",
+              "value": "Website Form"
+            },
+            {
+              "id": "a8",
+              "name": "lead_id",
+              "type": "string",
+              "value": "={{ $now.toMillis() + '-' + ($json.body.email || 'lead') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Map Website Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        16,
+        480
+      ],
+      "notes": "Moved 2026-07-28 from the old 'Normalize Lead Data' node: flat-payload mapping for the new website form, confirmed live in execution #36 (2026-07-21)."
+    }
+  ],
+  "connections": {
+    "Normalize Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Has Required Fields?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Required Fields?": {
+      "main": [
+        [
+          {
+            "node": "Lead Analysis Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Invalid Submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Lead Analysis Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "KB Vector Store Tool",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Services & KB Retriever",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Analysis Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Lead Analysis Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Analysis Agent": {
+      "main": [
+        [
+          {
+            "node": "Needs Manual Review?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Manual Review?": {
+      "main": [
+        [
+          {
+            "node": "Append Lead Row - Flagged",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Append Lead Row - Analyzed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Lead Row - Flagged": {
+      "main": [
+        [
+          {
+            "node": "Notify Owner - Manual Review Needed",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Generic Acknowledgement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Generic Acknowledgement": {
+      "main": [
+        [
+          {
+            "node": "Update Thread ID - Flagged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Lead Row - Analyzed": {
+      "main": [
+        [
+          {
+            "node": "Send Personalized Service Email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Priority == High?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Personalized Service Email": {
+      "main": [
+        [
+          {
+            "node": "Update Thread ID - Analyzed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Priority == High?": {
+      "main": [
+        [
+          {
+            "node": "Notify Owner - High Priority Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Not High Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Services & KB Retriever": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "KB Vector Store Tool",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KB Vector Store Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Lead Analysis Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tally Form Webhook": {
+      "main": [
+        [
+          {
+            "node": "Detect Payload Shape",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Payload Shape": {
+      "main": [
+        [
+          {
+            "node": "Map Tally Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Map Website Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Tally Fields": {
+      "main": [
+        [
+          {
+            "node": "Normalize Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Website Fields": {
+      "main": [
+        [
+          {
+            "node": "Normalize Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,1103 @@
+{
+  "name": "1 - Scrape and Qualify",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## SETUP, do this first\n\nBase/table are pre-filled on every Airtable node. Just:\n1. Click each Airtable node below and pick \"Airtable Personal Access Token (Lead Gen $0 Framework)\" from the Credential dropdown.\n2. Click \"DataForSEO Maps Search\" and pick \"DataForSEO API\" from the Credential dropdown.\n3. In tab #0, add one row: Category, City, Search Keywords, Batch Size Target = 5 (start small!), Active = checked.",
+        "height": 300,
+        "width": 600,
+        "color": 7
+      },
+      "name": "Sticky Note 17",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -384
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 1. Read Your Criteria\nPulls the one active row from tab #0 and turns it into a search query.",
+        "height": 300,
+        "width": 900,
+        "color": 4
+      },
+      "name": "Section - 1. Read Your Criteria",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -144,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 2. Search Google Maps\nOne call returns every business at once, the whole $1-credit scrape. If the call fails, it logs why instead of breaking silently.",
+        "height": 620,
+        "width": 852,
+        "color": 5
+      },
+      "name": "Section - 2. Search Google Maps",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        784,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 3. Qualify and Save\nEvery business goes to tab #2. Only ones with a website + 10 or more reviews also move on to tab #3 for deep analysis.",
+        "height": 300,
+        "width": 1628,
+        "color": 6
+      },
+      "name": "Section - 3. Qualify and Save",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1664,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "Start Scrape Run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX",
+          "cachedResultName": "Lead Gen $0 Framework"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX",
+          "cachedResultName": "0 - Criteria"
+        },
+        "filterByFormula": "{Active}",
+        "returnAll": false,
+        "limit": 1,
+        "options": {}
+      },
+      "name": "Get Active Criteria",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        272,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Base + table pre-filled (tab #0 Criteria), just pick the credential. CREDENTIAL: select or create \"Airtable Personal Access Token (Lead Gen $0 Framework)\" here, left blank on purpose, n8n's API auto-attaches an unrelated existing credential of the same type if one is provided by name only."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "criteria_record_id",
+              "type": "string",
+              "value": "={{$json.id}}"
+            },
+            {
+              "id": "a1",
+              "name": "category",
+              "type": "string",
+              "value": "={{$json.fields['Category']}}"
+            },
+            {
+              "id": "a2",
+              "name": "city",
+              "type": "string",
+              "value": "={{$json.fields['City'].replace(/,\\s*/g, ',').trim()}}"
+            },
+            {
+              "id": "a3",
+              "name": "batch_size",
+              "type": "number",
+              "value": "={{$json.fields['Batch Size Target'] || 5}}"
+            },
+            {
+              "id": "a4",
+              "name": "search_keyword",
+              "type": "string",
+              "value": "={{ $json.fields['Search Keywords'] || ($json.fields['Category'] + ' in ' + $json.fields['City']) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Build Search Query",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        560,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.dataforseo.com/v3/serp/google/maps/live/advanced",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify([{ \"keyword\": $json.search_keyword, \"location_name\": $json.city, \"language_code\": \"en\", \"depth\": $json.batch_size }]) }}",
+        "options": {}
+      },
+      "name": "DataForSEO Maps Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        864,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput",
+      "notes": "One call returns every business at once, this is the whole $1-credit scrape. Field names in the response (title, domain, rating.value, rating.votes_count, place_id, cid) are DataForSEO's documented Maps schema; confirm against the first live execution and adjust \"Map to Tab 2 Fields\" if theirs differs. CREDENTIAL: select or create \"DataForSEO API\" here, left blank on purpose, n8n's API auto-attaches an unrelated existing credential of the same type if one is provided by name only."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.tasks[0].status_code}}",
+              "rightValue": 20000,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Search Call OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1152,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "tasks[0].result[0].items",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "name": "Split Businesses",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1424,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "error_message",
+              "type": "string",
+              "value": "={{$json.status_message || 'DataForSEO Maps call failed'}}"
+            },
+            {
+              "id": "a1",
+              "name": "failed_at",
+              "type": "string",
+              "value": "={{$now.toISO()}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Log Search Failure",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1424,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "business_name",
+              "type": "string",
+              "value": "={{$json[\"tasks[0].result[0].items\"].title}}"
+            },
+            {
+              "id": "a1",
+              "name": "category",
+              "type": "string",
+              "value": "={{$json[\"tasks[0].result[0].items\"].category || $('Build Search Query').item.json.category}}"
+            },
+            {
+              "id": "a2",
+              "name": "city",
+              "type": "string",
+              "value": "={{$('Build Search Query').item.json.city}}"
+            },
+            {
+              "id": "a3",
+              "name": "address",
+              "type": "string",
+              "value": "={{$json[\"tasks[0].result[0].items\"].address}}"
+            },
+            {
+              "id": "a4",
+              "name": "phone",
+              "type": "string",
+              "value": "={{$json[\"tasks[0].result[0].items\"].phone}}"
+            },
+            {
+              "id": "a5",
+              "name": "website",
+              "type": "string",
+              "value": "={{$json[\"tasks[0].result[0].items\"].url || $json[\"tasks[0].result[0].items\"].domain || ''}}"
+            },
+            {
+              "id": "a6",
+              "name": "place_id",
+              "type": "string",
+              "value": "={{$json[\"tasks[0].result[0].items\"].place_id}}"
+            },
+            {
+              "id": "a7",
+              "name": "cid",
+              "type": "string",
+              "value": "={{$json[\"tasks[0].result[0].items\"].cid}}"
+            },
+            {
+              "id": "a8",
+              "name": "rating",
+              "type": "number",
+              "value": "={{$json[\"tasks[0].result[0].items\"].rating && $json[\"tasks[0].result[0].items\"].rating.value}}"
+            },
+            {
+              "id": "a9",
+              "name": "review_count",
+              "type": "number",
+              "value": "={{ ($json[\"tasks[0].result[0].items\"].rating && $json[\"tasks[0].result[0].items\"].rating.votes_count) || 0 }}"
+            },
+            {
+              "id": "a10",
+              "name": "business_status",
+              "type": "string",
+              "value": "={{$json[\"tasks[0].result[0].items\"].business_status || ''}}"
+            },
+            {
+              "id": "a11",
+              "name": "qualification_status",
+              "type": "string",
+              "value": "={{ ( ($json[\"tasks[0].result[0].items\"].domain || $json[\"tasks[0].result[0].items\"].url) && ( ($json[\"tasks[0].result[0].items\"].rating && $json[\"tasks[0].result[0].items\"].rating.votes_count || 0) >= 10) ) ? 'Passed' : ( !($json[\"tasks[0].result[0].items\"].domain || $json[\"tasks[0].result[0].items\"].url) ? 'Dropped - No Website' : 'Dropped - Low Reviews' ) }}"
+            },
+            {
+              "id": "a12",
+              "name": "date_scraped",
+              "type": "string",
+              "value": "={{$now.toISO()}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Map to Tab 2 Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1712,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX",
+          "cachedResultName": "Lead Gen $0 Framework"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX",
+          "cachedResultName": "2 - Scraped"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Business Name": "={{$json.business_name}}",
+            "Category": "={{$json.category}}",
+            "City": "={{$json.city}}",
+            "Address": "={{$json.address}}",
+            "Phone": "={{$json.phone}}",
+            "Website": "={{$json.website}}",
+            "Place ID": "={{$json.place_id}}",
+            "Rating": "={{$json.rating}}",
+            "Review Count": "={{$json.review_count}}",
+            "Business Status": "={{$json.business_status}}",
+            "Qualification Status": "={{$json.qualification_status}}",
+            "Date Scraped": "={{$json.date_scraped}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Business Name",
+              "displayName": "Business Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "City",
+              "displayName": "City",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Address",
+              "displayName": "Address",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Place ID",
+              "displayName": "Place ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Rating",
+              "displayName": "Rating",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Review Count",
+              "displayName": "Review Count",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Business Status",
+              "displayName": "Business Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Qualification Status",
+              "displayName": "Qualification Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Passed",
+                  "value": "Passed"
+                },
+                {
+                  "name": "Dropped - No Website",
+                  "value": "Dropped - No Website"
+                },
+                {
+                  "name": "Dropped - Low Reviews",
+                  "value": "Dropped - Low Reviews"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Date Scraped",
+              "displayName": "Date Scraped",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "name": "Save to Tab 2 - Scraped",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        1984,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Base + table pre-filled (tab #2 Scraped), just pick the credential. Every scraped business lands here regardless of qualification. CREDENTIAL: select or create \"Airtable Personal Access Token (Lead Gen $0 Framework)\" here, left blank on purpose, n8n's API auto-attaches an unrelated existing credential of the same type if one is provided by name only."
+    },
+    {
+      "parameters": {
+        "amount": 0.2
+      },
+      "name": "Wait 200ms (a)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2272,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$('Map to Tab 2 Fields').item.json.qualification_status}}",
+              "rightValue": "Passed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Has Enough Data?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2544,
+        112
+      ],
+      "notes": "Reads back from \"Map to Tab 2 Fields\" on purpose, not $json, the Airtable create just before this reshapes the item, so the flat qualification_status field no longer exists on $json here."
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX",
+          "cachedResultName": "Lead Gen $0 Framework"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX",
+          "cachedResultName": "3 - Analysed"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Business Name": "={{ $('Map to Tab 2 Fields').item.json.business_name }}",
+            "Website": "={{ $('Map to Tab 2 Fields').item.json.website }}",
+            "Phone": "={{ $('Map to Tab 2 Fields').item.json.phone }}",
+            "City": "={{ $('Map to Tab 2 Fields').item.json.city }}",
+            "Category": "={{ $('Map to Tab 2 Fields').item.json.category }}",
+            "Place ID": "={{ $('Map to Tab 2 Fields').item.json.place_id }}",
+            "Rating": "={{ $('Map to Tab 2 Fields').item.json.rating }}",
+            "Review Count": "={{ $('Map to Tab 2 Fields').item.json.review_count }}",
+            "Status": "Waiting for analysis"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Business Name",
+              "displayName": "Business Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Waiting for analysis",
+                  "value": "Waiting for analysis"
+                },
+                {
+                  "name": "Analysed",
+                  "value": "Analysed"
+                },
+                {
+                  "name": "Analysis error",
+                  "value": "Analysis error"
+                },
+                {
+                  "name": "Email drafted",
+                  "value": "Email drafted"
+                },
+                {
+                  "name": "Draft error",
+                  "value": "Draft error"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "City",
+              "displayName": "City",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Place ID",
+              "displayName": "Place ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Rating",
+              "displayName": "Rating",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Review Count",
+              "displayName": "Review Count",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Recent Reviews Text",
+              "displayName": "Recent Reviews Text",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Website Scrape Text",
+              "displayName": "Website Scrape Text",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "YouTube Channel URL",
+              "displayName": "YouTube Channel URL",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "YouTube Subscribers",
+              "displayName": "YouTube Subscribers",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "YouTube Views",
+              "displayName": "YouTube Views",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Owner YouTube Channel URL",
+              "displayName": "Owner YouTube Channel URL",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Owner YouTube Subscribers",
+              "displayName": "Owner YouTube Subscribers",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Detected Problem",
+              "displayName": "Detected Problem",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Evidence Quote",
+              "displayName": "Evidence Quote",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Recommended System",
+              "displayName": "Recommended System",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Problem Alignment Score",
+              "displayName": "Problem Alignment Score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Data Completeness Score",
+              "displayName": "Data Completeness Score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Priority Score",
+              "displayName": "Priority Score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Priority Tier",
+              "displayName": "Priority Tier",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "High",
+                  "value": "High"
+                },
+                {
+                  "name": "Medium",
+                  "value": "Medium"
+                },
+                {
+                  "name": "Not Now",
+                  "value": "Not Now"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Owner Name",
+              "displayName": "Owner Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Date Analysed",
+              "displayName": "Date Analysed",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "name": "Save to Tab 3 - Pending",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        2832,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Base + table pre-filled (tab #3 Analysed), just pick the credential. Only qualified businesses reach this table.\n\nWrites ONLY the 9 fields this workflow owns. It used to also write 0 into YouTube Subscribers/Views, Owner YouTube Subscribers, Problem Alignment Score, Data Completeness Score and Priority Score, removed 16 Aug 2026. Two of those fields no longer exist under those names, which would have failed the whole create, and the rule in this project is that a workflow writes only what it owns.\n\nCREDENTIAL: select or create \"Airtable Personal Access Token (Lead Gen $0 Framework)\" here, left blank on purpose, n8n's API auto-attaches an unrelated existing credential of the same type if one is provided by name only."
+    },
+    {
+      "parameters": {
+        "amount": 0.2
+      },
+      "name": "Wait 200ms (b)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3104,
+        112
+      ]
+    }
+  ],
+  "connections": {
+    "Start Scrape Run": {
+      "main": [
+        [
+          {
+            "node": "Get Active Criteria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Criteria": {
+      "main": [
+        [
+          {
+            "node": "Build Search Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Search Query": {
+      "main": [
+        [
+          {
+            "node": "DataForSEO Maps Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DataForSEO Maps Search": {
+      "main": [
+        [
+          {
+            "node": "Search Call OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Call OK?": {
+      "main": [
+        [
+          {
+            "node": "Split Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Search Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Businesses": {
+      "main": [
+        [
+          {
+            "node": "Map to Tab 2 Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map to Tab 2 Fields": {
+      "main": [
+        [
+          {
+            "node": "Save to Tab 2 - Scraped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Tab 2 - Scraped": {
+      "main": [
+        [
+          {
+            "node": "Wait 200ms (a)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 200ms (a)": {
+      "main": [
+        [
+          {
+            "node": "Has Enough Data?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Enough Data?": {
+      "main": [
+        [
+          {
+            "node": "Save to Tab 3 - Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Tab 3 - Pending": {
+      "main": [
+        [
+          {
+            "node": "Wait 200ms (b)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

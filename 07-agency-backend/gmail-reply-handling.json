@@ -1,0 +1,674 @@
+{
+  "name": "Gmail Reply Handling (Agency)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "readStatus": "unread"
+        }
+      },
+      "name": "Poll Inbox for Replies",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "notes": "Polling, not push, practical latency is ~1-2 min on n8n Cloud. Attach Gmail OAuth2 credential before activating."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s1",
+              "name": "sender_email",
+              "type": "string",
+              "value": "={{ ((($json.From || '').match(/<(.+)>/) || [null, $json.From])[1] || '').toLowerCase().trim() }}"
+            },
+            {
+              "id": "s2",
+              "name": "thread_id",
+              "type": "string",
+              "value": "={{ $json.threadId }}"
+            },
+            {
+              "id": "s3",
+              "name": "message_id",
+              "type": "string",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "id": "s4",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ $json.Subject }}"
+            },
+            {
+              "id": "s5",
+              "name": "message_text",
+              "type": "string",
+              "value": "={{ $json.text || $json.snippet || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Extract Sender & Thread Info",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        0
+      ],
+      "notes": "Gmail Trigger's simplified header field names (From, Subject) and body field (text vs snippet) are assumed, verify against a real received email and adjust if names differ."
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Email",
+              "lookupValue": "={{$json.sender_email}}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "name": "Look Up Lead by Email",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        528,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Swap PLACEHOLDER_LEADS_SHEET_ID for the real Spreadsheet ID and attach Google Sheets OAuth2 credential."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.Email}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Lead Record Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "Ignore - Not a Known Lead",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        768,
+        256
+      ],
+      "notes": "Terminal: no row created, no reply sent. Satisfies the 'ignore unrelated emails' requirement."
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=A known lead has replied by email. Their existing record:\nName: {{$json.Name}}\nPriority: {{$json['Priority Level']}}\nOriginal problem: {{$json['Problem Description']}}\nPain point summary: {{$json['Pain Point Summary']}}\nConversation status: {{$json['Conversation Status']}}\nLast email we sent them: {{$json['Drafted Email Response']}}\n\nTheir new reply (subject: {{$('Extract Sender & Thread Info').item.json.subject}}):\n{{$('Extract Sender & Thread Info').item.json.message_text}}\n\nAnalyze this reply per your instructions and produce the required structured output.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are the customer-conversation assistant for an AI automation agency, replying to an existing lead who already has a record. For every reply you must:\n1. Call the Services & KB Retriever tool at least once if the customer's message references anything that might be covered in the agency's knowledge base (pricing, services, process, case studies, promotions/discounts) before finalizing your response.\n2. Write a brief internal summary of what the customer said.\n3. Decide updated_priority (High/Medium/Low/Unchanged) and conversation_status (Ongoing/Meeting Requested/Ready to Close/Needs Manual Review/Closed-Won/Closed-Lost) based on the new message and prior context.\n4. Draft a warm, specific, non-generic reply email (subject + body) that directly addresses what the customer asked, using the knowledge base where relevant, including any active promotion/discount if genuinely relevant to the conversation. Never fabricate knowledge-base content the tool did not return. Sign off as 'The AI Automation Company Team', never use a placeholder like '[Your Name]' since no individual signs these emails.\n5. Write one short timestamped-style internal log line summarizing this turn for the record.\n6. Honestly self-assess your confidence (0-1). If you cannot confidently understand the reply, OR the knowledge-base tool returned nothing relevant to a question that needed it, set needs_manual_review=true, lower confidence accordingly, and explain why in review_reason."
+        }
+      },
+      "name": "Reply Handling Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1200,
+        -16
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "model": {
+          "mode": "id",
+          "value": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "name": "OpenAI Chat Model (Reply)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1488,
+        352
+      ],
+      "notes": "Attach OpenAI API credential before activating."
+    },
+    {
+      "parameters": {
+        "pineconeIndex": {
+          "mode": "id",
+          "value": "agency-kb"
+        },
+        "options": {}
+      },
+      "name": "Services & KB Retriever (Reply)",
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "typeVersion": 1.3,
+      "position": [
+        1136,
+        384
+      ],
+      "notes": "Swap PLACEHOLDER_PINECONE_INDEX_NAME for the real index name (same index used across all workflows) and attach Pinecone API credential."
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "OpenAI Embeddings (Reply)",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1392,
+        576
+      ],
+      "notes": "Attach OpenAI API credential before activating."
+    },
+    {
+      "parameters": {
+        "description": "the agency's knowledge base of service descriptions, pricing philosophy, and case studies. Whenever a customer's reply references pricing, services, process, or needs more information, you should ALWAYS use this. Input should be a fully formed question.",
+        "topK": 5
+      },
+      "name": "KB Vector Store Tool (Reply)",
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "typeVersion": 1.1,
+      "position": [
+        1216,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\"reply_summary\",\"updated_priority\",\"conversation_status\",\"confidence\",\"needs_manual_review\",\"review_reason\",\"kb_found_relevant_info\",\"reply_email_subject\",\"reply_email_body\",\"internal_note\"],\n  \"properties\": {\n    \"reply_summary\": {\"type\": \"string\"},\n    \"updated_priority\": {\"type\": \"string\", \"enum\": [\"High\",\"Medium\",\"Low\",\"Unchanged\"]},\n    \"conversation_status\": {\"type\": \"string\", \"enum\": [\"Ongoing\",\"Meeting Requested\",\"Ready to Close\",\"Needs Manual Review\",\"Closed-Won\",\"Closed-Lost\"]},\n    \"confidence\": {\"type\": \"number\", \"minimum\": 0, \"maximum\": 1},\n    \"needs_manual_review\": {\"type\": \"boolean\"},\n    \"review_reason\": {\"type\": \"string\"},\n    \"kb_found_relevant_info\": {\"type\": \"boolean\"},\n    \"reply_email_subject\": {\"type\": \"string\"},\n    \"reply_email_body\": {\"type\": \"string\"},\n    \"internal_note\": {\"type\": \"string\"}\n  }\n}"
+      },
+      "name": "Reply Analysis Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$json.output.needs_manual_review}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{$json.output.confidence}}",
+              "rightValue": 0.6,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            },
+            {
+              "id": "c3",
+              "leftValue": "={{$json.output.kb_found_relevant_info}}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "name": "Needs Manual Review? (Reply)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1648,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "thread",
+        "operation": "reply",
+        "threadId": "={{$('Extract Sender & Thread Info').item.json.thread_id}}",
+        "messageId": "={{$('Extract Sender & Thread Info').item.json.message_id}}",
+        "message": "=Hi {{$('Look Up Lead by Email').item.json.Name}},\n\nThanks for the reply, I've got it and want to make sure you get an accurate answer, so I'm looping in a member of our team personally. We'll follow up shortly.\n\nTalk soon,\nThe Team",
+        "options": {}
+      },
+      "name": "Reply - Generic Holding Message",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1904,
+        -160
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Attach Gmail OAuth2 credential."
+    },
+    {
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=[Review Needed] Reply from {{$('Look Up Lead by Email').item.json.Name}} ({{$('Look Up Lead by Email').item.json.Email}})",
+        "emailType": "text",
+        "message": "=A lead's reply needs manual review.\n\nName: {{$('Look Up Lead by Email').item.json.Name}}\nEmail: {{$('Look Up Lead by Email').item.json.Email}}\nTheir message: {{$('Extract Sender & Thread Info').item.json.message_text}}\n\nReview reason: {{$('Reply Handling Agent').item.json.output.review_reason}}\nAI confidence: {{$('Reply Handling Agent').item.json.output.confidence}}",
+        "options": {}
+      },
+      "name": "Notify Owner - Reply Needs Review",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2144,
+        -160
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Replace OWNER_EMAIL_PLACEHOLDER@example.com with the business owner's real inbox address."
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [],
+          "value": {
+            "Email": "={{$('Look Up Lead by Email').item.json.Email}}",
+            "Conversation Status": "Needs Manual Review",
+            "Needs Review": "={{$('Reply Handling Agent').item.json.output.needs_manual_review}}",
+            "Review Reason": "={{$('Reply Handling Agent').item.json.output.review_reason}}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Update Lead Row - Flagged (Reply)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2624,
+        -160
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Swap PLACEHOLDER_LEADS_SHEET_ID for the real Spreadsheet ID and attach Google Sheets OAuth2 credential."
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{$('Extract Sender & Thread Info').item.json.message_id}}"
+      },
+      "name": "Mark Thread Processed (Flagged)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2864,
+        -160
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Prevents the next poll from reprocessing this message, since the trigger filters on readStatus=unread. Attach Gmail OAuth2 credential."
+    },
+    {
+      "parameters": {
+        "resource": "thread",
+        "operation": "reply",
+        "threadId": "={{$('Extract Sender & Thread Info').item.json.thread_id}}",
+        "messageId": "={{$('Extract Sender & Thread Info').item.json.message_id}}",
+        "message": "={{$json.output.reply_email_body}}",
+        "options": {}
+      },
+      "name": "Reply - Personalized Response",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1904,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Attach Gmail OAuth2 credential."
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [],
+          "value": {
+            "Email": "={{$('Look Up Lead by Email').item.json.Email}}",
+            "Conversation Status": "={{$('Reply Handling Agent').item.json.output.conversation_status}}",
+            "Priority Level": "={{ $('Reply Handling Agent').item.json.output.updated_priority === 'Unchanged' ? $('Look Up Lead by Email').item.json['Priority Level'] : $('Reply Handling Agent').item.json.output.updated_priority }}",
+            "Pain Point Summary": "={{$('Reply Handling Agent').item.json.output.reply_summary}}",
+            "Drafted Email Response": "={{$('Reply Handling Agent').item.json.output.reply_email_body}}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Update Lead Row - After Reply",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2384,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Swap PLACEHOLDER_LEADS_SHEET_ID for the real Spreadsheet ID and attach Google Sheets OAuth2 credential."
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{$('Extract Sender & Thread Info').item.json.message_id}}"
+      },
+      "name": "Mark Thread Processed (Confident)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2624,
+        112
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Prevents the next poll from reprocessing this message. Attach Gmail OAuth2 credential."
+    }
+  ],
+  "connections": {
+    "Poll Inbox for Replies": {
+      "main": [
+        [
+          {
+            "node": "Extract Sender & Thread Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Sender & Thread Info": {
+      "main": [
+        [
+          {
+            "node": "Look Up Lead by Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look Up Lead by Email": {
+      "main": [
+        [
+          {
+            "node": "Lead Record Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Record Found?": {
+      "main": [
+        [
+          {
+            "node": "Reply Handling Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore - Not a Known Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model (Reply)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Reply Handling Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "KB Vector Store Tool (Reply)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Embeddings (Reply)": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Services & KB Retriever (Reply)",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Services & KB Retriever (Reply)": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "KB Vector Store Tool (Reply)",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KB Vector Store Tool (Reply)": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reply Handling Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply Analysis Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Reply Handling Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply Handling Agent": {
+      "main": [
+        [
+          {
+            "node": "Needs Manual Review? (Reply)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Manual Review? (Reply)": {
+      "main": [
+        [
+          {
+            "node": "Reply - Generic Holding Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply - Personalized Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply - Generic Holding Message": {
+      "main": [
+        [
+          {
+            "node": "Notify Owner - Reply Needs Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Lead Row - Flagged (Reply)": {
+      "main": [
+        [
+          {
+            "node": "Mark Thread Processed (Flagged)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Lead Row - After Reply": {
+      "main": [
+        [
+          {
+            "node": "Mark Thread Processed (Confident)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Owner - Reply Needs Review": {
+      "main": [
+        [
+          {
+            "node": "Update Lead Row - Flagged (Reply)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply - Personalized Response": {
+      "main": [
+        [
+          {
+            "node": "Update Lead Row - After Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,525 @@
+{
+  "name": "2 - Review Request After Job",
+  "nodes": [
+    {
+      "name": "Sticky Note - s-setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -400
+      ],
+      "parameters": {
+        "width": 600,
+        "height": 420,
+        "color": 4,
+        "content": "## ASKING FOR THE REVIEW\n\nWhen a job is marked complete, the client's system sends a request here. A couple of hours later - while it is still fresh - the customer gets one short email.\n\n**Fill in before switching on:**\n1. The Airtable base/table IDs (`appREPLACE_...`) and a token scoped to this base.\n2. **The Google review link** - in the `Settings - Edit These` node. It will not send a usable email until that is a real link.\n3. The owner email.\n\nSend a POST with: `customer_name`, `customer_email`, `job_description`, and optionally `owner_email`."
+      }
+    },
+    {
+      "name": "Sticky Note - s-policy",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        60
+      ],
+      "parameters": {
+        "width": 600,
+        "height": 400,
+        "color": 3,
+        "content": "## THE REVIEW RULE - DO NOT CHANGE THIS\n\n**Everybody gets the same email.** Every customer is asked for a review, and every customer is offered the private route in the same message. Nobody is screened first.\n\nSending the review link only to people who said they were happy is called review gating. Google prohibits it, and it is the fastest way to get a business's reviews wiped.\n\n**Never offer anything in return for a review** - no discount, no entry into a draw, no free anything. That breaches Google's policy outright and is not built here.\n\nWhat IS allowed, and what this does: ask everyone, and make it easy for an unhappy customer to reply to a human instead. That is the whole design."
+      }
+    },
+    {
+      "name": "Sticky Note - s-wait",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        940,
+        -400
+      ],
+      "parameters": {
+        "width": 420,
+        "height": 240,
+        "color": 7,
+        "content": "## Why it waits\n\nThe email goes out a couple of hours after the job, not instantly.\n\nStraight away feels automated and often arrives while the customer is still paying or seeing someone out. A couple of hours later they have had time to notice the work, and it still feels connected to the visit.\n\nChange the delay in `Settings - Edit These`."
+      }
+    },
+    {
+      "name": "Receive Completed Job",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "job-complete",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "name": "Normalize the Job",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        100,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "customer_name",
+              "type": "string",
+              "value": "={{ ($json.body.customer_name || '').trim() }}"
+            },
+            {
+              "id": "a2",
+              "name": "first_name",
+              "type": "string",
+              "value": "={{ (($json.body.customer_name || '').trim().split(' ')[0]) }}"
+            },
+            {
+              "id": "a3",
+              "name": "customer_email",
+              "type": "string",
+              "value": "={{ ($json.body.customer_email || '').trim().toLowerCase() }}"
+            },
+            {
+              "id": "a4",
+              "name": "job_description",
+              "type": "string",
+              "value": "={{ $json.body.job_description || 'your visit' }}"
+            },
+            {
+              "id": "a5",
+              "name": "owner_email",
+              "type": "string",
+              "value": "={{ $json.body.owner_email || 'you@example.com' }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Enough Detail to Send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ String($json.customer_email && $json.first_name ? 'ok' : '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Respond Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        540,
+        220
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 400,
+        "responseBody": "={{ JSON.stringify({ queued: false, reason: 'customer_name and customer_email are both required' }) }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Respond Queued",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        540,
+        -180
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ queued: true, customer: $('Normalize the Job').item.json.first_name }) }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Settings - Edit These",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        540,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "review_link",
+              "type": "string",
+              "value": "REPLACE_WITH_YOUR_GOOGLE_REVIEW_LINK"
+            },
+            {
+              "id": "a2",
+              "name": "wait_hours",
+              "type": "number",
+              "value": "={{ 2 }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Have They Opted Out Before?",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_REACTIVATION_BASE",
+          "cachedResultName": "Reactivation and Reviews"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_SUPPRESSION",
+          "cachedResultName": "Suppression List"
+        },
+        "filterByFormula": "=LOWER({Email}) = '{{ $('Normalize the Job').item.json.customer_email }}'",
+        "options": {}
+      }
+    },
+    {
+      "name": "Alert Owner - Suppression Check Failed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        780,
+        300
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "Review request held back - could not check the opt-out list",
+        "emailType": "text",
+        "message": "=A job was marked complete but the opt-out list could not be read, so no review request was sent.\n\nCustomer: {{ $('Normalize the Job').item.json.customer_name }} ({{ $('Normalize the Job').item.json.customer_email }})\nJob: {{ $('Normalize the Job').item.json.job_description }}\n\nWhat Airtable said: {{ JSON.stringify($json.error || $json) }}\n\nNothing was sent, on purpose. Emailing someone who previously asked to be left alone is worse than missing one review.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Are They on the Opt-Out List?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1000,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ String($json.id || '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Skip - They Opted Out",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1220,
+        220
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Wait Until It Is Fresh But Not Instant",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1220,
+        -80
+      ],
+      "parameters": {
+        "amount": "={{ $('Settings - Edit These').item.json.wait_hours }}",
+        "unit": "hours"
+      }
+    },
+    {
+      "name": "Send the Review Request",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "position": [
+        1460,
+        -80
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Normalize the Job').item.json.customer_email }}",
+        "subject": "=Quick one about {{ $('Normalize the Job').item.json.job_description }}",
+        "emailType": "text",
+        "message": "=Hi {{ $('Normalize the Job').item.json.first_name }},\n\nThanks for having us out for {{ $('Normalize the Job').item.json.job_description }}.\n\nIf it went well, a short Google review would genuinely help us - it is the main way people find us:\n{{ $('Settings - Edit These').item.json.review_link }}\n\nAnd if anything was not right, just reply to this email instead. It comes straight to me and I would much rather hear it from you.\n\nEither way, thanks for your time.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Log the Review Request",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1700,
+        -180
+      ],
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_REACTIVATION_BASE",
+          "cachedResultName": "Reactivation and Reviews"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tblREPLACE_SEND_LOG",
+          "cachedResultName": "Send Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Email": "={{ $('Normalize the Job').item.json.customer_email }}",
+            "Name": "={{ $('Normalize the Job').item.json.customer_name }}",
+            "Type": "Review Request",
+            "Sent At": "={{ $now.toISO() }}",
+            "Channel": "Email",
+            "Subject": "={{ 'Quick one about ' + $('Normalize the Job').item.json.job_description }}",
+            "Written By": "fixed-template"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Alert Owner - Review Request Failed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1700,
+        60
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "=Review request did not send: {{ $('Normalize the Job').item.json.customer_name }}",
+        "emailType": "text",
+        "message": "=A review request failed to send.\n\nCustomer: {{ $('Normalize the Job').item.json.customer_name }} ({{ $('Normalize the Job').item.json.customer_email }})\nJob: {{ $('Normalize the Job').item.json.job_description }}\n\nWhat went wrong: {{ JSON.stringify($json.error || $json) }}\n\nNothing is retried automatically - ask them yourself if it was a job worth a review.",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Receive Completed Job": {
+      "main": [
+        [
+          {
+            "node": "Normalize the Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize the Job": {
+      "main": [
+        [
+          {
+            "node": "Enough Detail to Send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enough Detail to Send?": {
+      "main": [
+        [
+          {
+            "node": "Respond Queued",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Settings - Edit These",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings - Edit These": {
+      "main": [
+        [
+          {
+            "node": "Have They Opted Out Before?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Have They Opted Out Before?": {
+      "main": [
+        [
+          {
+            "node": "Are They on the Opt-Out List?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Owner - Suppression Check Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Are They on the Opt-Out List?": {
+      "main": [
+        [
+          {
+            "node": "Skip - They Opted Out",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait Until It Is Fresh But Not Instant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Until It Is Fresh But Not Instant": {
+      "main": [
+        [
+          {
+            "node": "Send the Review Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send the Review Request": {
+      "main": [
+        [
+          {
+            "node": "Log the Review Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Owner - Review Request Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

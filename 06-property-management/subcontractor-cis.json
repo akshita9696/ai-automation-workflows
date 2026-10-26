@@ -1,0 +1,557 @@
+{
+  "name": "PM Template - Subcontractor CIS",
+  "nodes": [
+    {
+      "name": "Watch for Ready to Bill",
+      "notes": "'Ready to Bill' is set MANUALLY by the coordinator, not auto-set on Job Complete - many trade businesses wait for the subcontractor's own invoice/timesheet before paying.",
+      "type": "n8n-nodes-base.airtableTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 30,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "authentication": "airtableTokenApi",
+        "baseId": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "tableId": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "triggerField": "Last Modified Time",
+        "additionalFields": {
+          "formula": "{Subcontractor Bill Status} = 'Ready to Bill'"
+        }
+      }
+    },
+    {
+      "name": "Already Billed?",
+      "notes": "Same idempotency guard as owner-invoicing - skip rather than create a duplicate Bill.",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        272,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.fields['Xero Bill ID'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Already Billed - Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        528,
+        128
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Look Up Subcontractor Record",
+      "notes": "Subcontractors table ID confirmed (tblXXXXXXXXXXXXXX, filled 2026-07-23). Assumes Subcontractor Record is an Airtable Link field.",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        528,
+        -80
+      ],
+      "parameters": {
+        "operation": "get",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "id": "={{ $json.fields['Subcontractor Record'][0] }}"
+      }
+    },
+    {
+      "name": "CIS Precondition Verified?",
+      "notes": "Stops a Bill ever being created with wrong/no CIS deduction because Xero-side setup was skipped - CIS configuration must happen manually in Xero's own UI.",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        -80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.fields['CIS Verified in Xero'] }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.fields['Xero Contact ID'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Flag CIS Not Verified",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1040,
+        -160
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$('Watch for Ready to Bill').item.json.id}}",
+            "Needs Review": true,
+            "Review Reason": "Subcontractor CIS setup not verified in Xero - check 'CIS Verified in Xero' and 'Xero Contact ID' on the Subcontractors table"
+          }
+        }
+      }
+    },
+    {
+      "name": "Notify Coordinator - CIS Not Verified",
+      "notes": "PLACEHOLDER_COORDINATOR_EMAIL - fill in before activating.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        1296,
+        -160
+      ],
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=Subcontractor CIS setup incomplete: Job {{$('Watch for Ready to Bill').item.json.fields['Job ID']}}",
+        "message": "=Job {{$('Watch for Ready to Bill').item.json.fields['Job ID']}} was marked Ready to Bill, but the linked subcontractor's CIS status/rate has not been verified as set up in Xero. Please confirm CIS configuration on the subcontractor's Xero Contact, then tick 'CIS Verified in Xero'.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Create CIS Bill",
+      "notes": "Xero Organization ID confirmed (YOUR_XERO_TENANT_ID, filled 2026-07-23). CIS deduction is calculated by Xero automatically from the Contact's own CIS configuration. taxType proactively changed from bare 'INPUT' to 'INPUT2' on 2026-07-27, mirroring the confirmed Invoicing bug (bare 'OUTPUT' was rejected by this trial org, 'OUTPUT2' worked) - NOT yet confirmed live for the INPUT side, verify on first real CIS Bill test. RISK: taxType is a hardcoded 4-option dropdown with no distinct 'Reverse Charge' option - currently maps Reverse Charge to NONE as a placeholder; test against the real org before go-live, may require an HTTP Request node direct to Xero's API.",
+      "type": "n8n-nodes-base.xero",
+      "typeVersion": 1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1040,
+        -80
+      ],
+      "parameters": {
+        "resource": "invoice",
+        "operation": "create",
+        "organizationId": "YOUR_XERO_TENANT_ID",
+        "type": "ACCPAY",
+        "contactId": "={{$json.fields['Xero Contact ID']}}",
+        "lineItemsUi": {
+          "lineItemsValues": [
+            {
+              "description": "=Labour - Job {{$('Watch for Ready to Bill').item.json.fields['Job ID']}} - {{$('Watch for Ready to Bill').item.json.fields['Property Address']}}",
+              "quantity": 1,
+              "unitAmount": "={{$('Watch for Ready to Bill').item.json.fields['Subcontractor Labour Cost (Net, GBP)']}}",
+              "accountCode": "={{$json.fields['Default Labour Account Code']}}",
+              "taxType": "={{ $json.fields['VAT Treatment'] === 'Standard' ? 'INPUT2' : 'NONE' }}"
+            }
+          ]
+        },
+        "additionalFields": {
+          "date": "={{$now.toISODate()}}",
+          "dueDate": "={{$now.plus({ days: 14 }).toISODate()}}",
+          "reference": "=Job {{$('Watch for Ready to Bill').item.json.fields['Job ID']}} labour",
+          "lineAmountTypes": "Exclusive",
+          "status": "AUTHORISED"
+        }
+      }
+    },
+    {
+      "name": "Bill Created OK?",
+      "notes": "Explicit success guard, never trust onError:continueRegularOutput alone.",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1296,
+        -80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.InvoiceID || ($json.invoices && $json.invoices[0] && $json.invoices[0].InvoiceID) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Flag Bill Creation Failed",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1552,
+        32
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$('Watch for Ready to Bill').item.json.id}}",
+            "Needs Review": true,
+            "Review Reason": "=Xero CIS Bill creation failed: {{$json.message || 'unknown error'}}"
+          }
+        }
+      }
+    },
+    {
+      "name": "Notify Coordinator - Bill Failed",
+      "notes": "PLACEHOLDER_COORDINATOR_EMAIL - fill in before activating.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        1808,
+        32
+      ],
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=Xero CIS Bill creation failed: Job {{$('Watch for Ready to Bill').item.json.fields['Job ID']}}",
+        "message": "=Creating the Xero Bill for Job {{$('Watch for Ready to Bill').item.json.fields['Job ID']}} failed: {{$json.message || 'unknown error'}}.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Update Job - Bill Created",
+      "notes": "'Subcontractor Bill Status' is deliberately a separate state machine from 'Status'.",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1552,
+        -160
+      ],
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "mode": "id",
+          "value": "appXXXXXXXXXXXXXX"
+        },
+        "table": {
+          "mode": "id",
+          "value": "tblXXXXXXXXXXXXXX"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [],
+          "value": {
+            "id": "={{$('Watch for Ready to Bill').item.json.id}}",
+            "Subcontractor Bill Status": "Bill Created",
+            "Xero Bill ID": "={{$json.InvoiceID || ($json.invoices && $json.invoices[0] && $json.invoices[0].InvoiceID)}}"
+          }
+        }
+      }
+    },
+    {
+      "name": "Email Subcontractor - Bill Raised",
+      "notes": "Optional nice-to-have.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        1808,
+        -160
+      ],
+      "parameters": {
+        "sendTo": "={{$('Look Up Subcontractor Record').item.json.fields['Email']}}",
+        "subject": "=Bill raised for your work on Job {{$('Watch for Ready to Bill').item.json.fields['Job ID']}}",
+        "message": "=Hi {{$('Look Up Subcontractor Record').item.json.fields['Subcontractor Name']}},\n\nA bill has been raised for your work on {{$('Watch for Ready to Bill').item.json.fields['Property Address']}} (net GBP {{$('Watch for Ready to Bill').item.json.fields['Subcontractor Labour Cost (Net, GBP)']}}, before CIS deduction). You'll receive payment per our usual terms.",
+        "options": {}
+      }
+    },
+    {
+      "name": "Monthly CIS300 Filing Reminder",
+      "notes": "Monthly, ~12th - a week ahead of HMRC's 19th-of-month CIS300 deadline. Does NOT file anything - deterministic nudge only.",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        320
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtDayOfMonth": 12,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Notify Coordinator - CIS300 Filing Due",
+      "notes": "PLACEHOLDER_COORDINATOR_EMAIL - fill in before activating.",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        272,
+        320
+      ],
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=Reminder: CIS300 return due to HMRC by the 19th",
+        "message": "=This is a reminder that the monthly CIS300 return is due to HMRC by the 19th of this month, even if no subcontractors were paid. This automation does not file it for you.",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Watch for Ready to Bill": {
+      "main": [
+        [
+          {
+            "node": "Already Billed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Billed?": {
+      "main": [
+        [
+          {
+            "node": "Look Up Subcontractor Record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Already Billed - Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look Up Subcontractor Record": {
+      "main": [
+        [
+          {
+            "node": "CIS Precondition Verified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CIS Precondition Verified?": {
+      "main": [
+        [
+          {
+            "node": "Create CIS Bill",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flag CIS Not Verified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flag CIS Not Verified": {
+      "main": [
+        [
+          {
+            "node": "Notify Coordinator - CIS Not Verified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create CIS Bill": {
+      "main": [
+        [
+          {
+            "node": "Bill Created OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bill Created OK?": {
+      "main": [
+        [
+          {
+            "node": "Update Job - Bill Created",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flag Bill Creation Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flag Bill Creation Failed": {
+      "main": [
+        [
+          {
+            "node": "Notify Coordinator - Bill Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Job - Bill Created": {
+      "main": [
+        [
+          {
+            "node": "Email Subcontractor - Bill Raised",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monthly CIS300 Filing Reminder": {
+      "main": [
+        [
+          {
+            "node": "Notify Coordinator - CIS300 Filing Due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
